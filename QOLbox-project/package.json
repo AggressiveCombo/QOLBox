@@ -1,0 +1,14 @@
+{
+  "name": "qolbox-userscript",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build && node ../QOLbox.regression-check.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.0",
+    "typescript": "6.0.3"
+  }
+}

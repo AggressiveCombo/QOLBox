@@ -1,28 +1,27 @@
 # QOLBox
-Fullscreen hitbox.io, reserve spots for full lobbies, tab indicator when your game starts, Esc chat cancel, persistent audio controls, and a first-start setup menu for choosing QOLBox features.
 
-<p align="center">
-  <img src="assets/QOLBox_Menu.png"
-       alt="QOLBox Menu showcasing different toggleable features"
-       width="800">
-  <br>
-  <em>QOLBox menu with toggleable gameplay features</em>
-</p>
+QOLBox is a userscript for [hitbox.io](https://hitbox.io) that adds fullscreen and quality-of-life improvements, mobile `Grab`, readable chat, lobby commands, reserve spots for full lobbies, audio controls, away-tab alerts, and update-history notices.
 
----
+## Install
 
-**QOLBox** makes [hitbox.io](https://hitbox.io) fullscreen, and makes its audio, chat, lobby, and tab behavior less annoying.
+- Install from [GreasyFork](https://greasyfork.org/en/scripts/568667-qolbox).
+- Or install the generated userscript directly from GitHub: [`QOLbox.user.js`](https://github.com/AggressiveCombo/QOLBox/raw/main/QOLbox.user.js).
+- GitHub releases are available at <https://github.com/AggressiveCombo/QOLBox/releases>.
 
-It remembers your game and jukebox volume, lets you use the mouse wheel on the game volume control and jukebox knob, keeps the jukebox muted if you want it muted, and makes volume differences feel more natural with exponential volume scaling.
+## Use
 
-It adds a reserve flow for full lobbies, lets you press Esc to cancel chat without sending your draft, returns you to the game quickly after canceling chat, and changes the tab title/favicon when a game starts while you're away from the tab and waiting in the lobby as a player.
+- Desktop: press `F8` to open QOLBox settings.
+- Mobile: open the site's hamburger menu and choose `QOLBox`.
+- First-time setup lets you choose which QOLBox features are enabled.
 
-It also includes a possible fix for lobby music playing in-game because of a game bug.
+## Source
 
-Instability/bugs possible!
+The TypeScript source project lives in [`QOLbox-project`](QOLbox-project/). The generated installable userscript is [`QOLbox.user.js`](QOLbox.user.js).
 
-Written by gpt-5.4 and gpt-5.5 in the Codex CLI.
+```powershell
+cd QOLbox-project
+npm install
+npm run check
+```
 
-> Thank you for using QOLBox! ❤️
-
-[Greasyfork link](https://greasyfork.org/en/scripts/568667-qolbox)
+Written by gpt-5.4 and gpt-5.5 in Codex.

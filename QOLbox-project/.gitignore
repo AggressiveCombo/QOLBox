@@ -1,0 +1,34 @@
+node_modules/
+
+# Local Codex/operator notes
+AGENTS.md
+goal.md
+progress.md
+
+# Local validation only
+live-checks/
+test-results/
+playwright-report/
+output/playwright/
+*.log
+*.trace
+*.har
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.mp4
+*.webm
+*.zip
+*.tar
+*.tar.gz
+*.tmp
+
+# Browser profiles and captured probe output
+profiles/
+browser-profiles/
+playwright-profiles/
+.auth/
+captured-responses/
+probe-output/
