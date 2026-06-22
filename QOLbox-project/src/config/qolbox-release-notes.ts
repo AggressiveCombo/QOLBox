@@ -56,15 +56,22 @@ const GITHUB_RELEASES_URL = 'https://api.github.com/repos/AggressiveCombo/QOLBox
 const RELEASE_HISTORY_CACHE_KEY = 'vm.hitbox.qolboxReleaseHistory.v1';
 const RELEASE_HISTORY_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const RELEASE_HISTORY_FETCH_TIMEOUT_MS = 7000;
+const IS_DEV_VERSION = /-dev$/i.test(QOLBOX_VERSION);
+const LOCAL_CURRENT_RELEASE_FALLBACK_NOTES: readonly string[] = IS_DEV_VERSION
+  ? [
+      'This development build contains the current local QOLBox changes.',
+      'Public release notes are loaded from GitHub releases and GreasyFork version history when available.',
+    ]
+  : [
+      'Adds grouped lobby tools, expanded slash commands, mobile Grab, setup controls, and a compact update notice.',
+      'Improves fullscreen, reserve, audio, chat, spectator, and away-tab behavior for this release.',
+    ];
 
 const LOCAL_CURRENT_RELEASE_FALLBACK: readonly QolboxReleaseNote[] = [
   {
     version: QOLBOX_VERSION,
     source: 'local-fallback',
-    notes: [
-      'Adds grouped lobby tools, expanded slash commands, mobile Grab, setup controls, and a compact update notice.',
-      'Improves fullscreen, reserve, audio, chat, spectator, and away-tab behavior for the v2.0.0 release.',
-    ],
+    notes: LOCAL_CURRENT_RELEASE_FALLBACK_NOTES,
   },
 ];
 
@@ -204,12 +211,16 @@ function getSourcePriority(source: QolboxReleaseNoteSource): number {
 }
 
 function shouldReplaceReleaseEntry(next: QolboxReleaseNote, current: QolboxReleaseNote): boolean {
+  const sourcePriorityDelta = getSourcePriority(next.source) - getSourcePriority(current.source);
+  if (sourcePriorityDelta) {
+    return sourcePriorityDelta > 0;
+  }
+
   const timestampDelta = getReleaseTimestamp(next) - getReleaseTimestamp(current);
   if (timestampDelta) {
     return timestampDelta > 0;
   }
-
-  return getSourcePriority(next.source) > getSourcePriority(current.source);
+  return false;
 }
 
 function dedupeLatestReleaseEntries(entries: readonly QolboxReleaseNote[]): QolboxReleaseNote[] {

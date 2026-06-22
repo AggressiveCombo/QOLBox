@@ -1,6 +1,6 @@
 # QOLBox Source
 
-This directory is the source project for the generated installable userscript at `../QOLbox.user.js`.
+This directory is the source project for the generated installable userscript at `QOLbox.user.js`.
 
 ## Commands
 
@@ -15,7 +15,7 @@ npm run check
 
 ## Project Structure
 
-The app bootstrap and controller wiring lives in strict TypeScript at `src/app/qolbox-app.ts` while feature code is split into focused modules. Do not edit the generated `../QOLbox.user.js` directly; update source files and rebuild it.
+The app bootstrap and controller wiring lives in strict TypeScript at `src/app/qolbox-app.ts` while feature code is split into focused modules. Do not edit the generated `QOLbox.user.js` directly; update source files and rebuild it.
 
 Source modules currently cover:
 

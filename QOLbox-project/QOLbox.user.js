@@ -2,7 +2,7 @@
 // @name         QOLBox
 // @namespace    Violentmonkey Scripts
 // @author       gpt-5.4 and gpt-5.5
-// @version      2.0.0
+// @version      2.0.1
 // @description  Fullscreen hitbox.io, reserve spots, away-tab alerts, audio controls, mobile Grab, readable chat, lobby commands, and first-start setup for hitbox.io.
 // @license      ISC
 // @match        https://hitbox.io/
@@ -183,14 +183,9 @@
       style.textContent = `
         #adboxverticalleft,
         #adboxverticalright {
+          display: none !important;
+          visibility: hidden !important;
           pointer-events: none !important;
-        }
-
-        #adboxverticalleft iframe,
-        #adboxverticalleft a,
-        #adboxverticalright iframe,
-        #adboxverticalright a {
-          pointer-events: auto !important;
         }
       `;
       root.appendChild(style);
@@ -5168,6 +5163,7 @@
   // src/features/in-game-chat-scroll.ts
   var CHAT_READING_CLASS = "qolboxChatReading";
   var CHAT_INTERACTIVE_CLASS = "qolboxChatInteractive";
+  var RESTORED_CHAT_MESSAGE_ATTR = "data-qolbox-restored-chat-message";
   var MAX_RETAINED_MESSAGES = 1e3;
   var RESTORED_HISTORY_DISPLAY_MS = 6500;
   function getChatContent(chat) {
@@ -5234,9 +5230,11 @@
     return container.outerHTML;
   }
   function getContentMessages(content) {
-    const html = getMessageNodes(content).map(getMessageHtml);
+    const nodes = getMessageNodes(content);
+    const html = nodes.map(getMessageHtml);
     return {
       html,
+      nodes,
       signatures: html.map((value) => `${value.length}:${value}`)
     };
   }
@@ -5259,22 +5257,26 @@
     }
     return 0;
   }
-  function rememberMessageHtml(html, state) {
+  function rememberMessageRecords(messages, state) {
     if (state.restoring) {
       return false;
     }
+    const html = messages.html;
     const signatures = getMessageSignatures(html);
     if (!signatures.length) {
       return false;
     }
     const overlap = getOverlapLength(state.historySignatures, signatures);
     const newHtml = html.slice(overlap);
+    const newNodes = messages.nodes?.slice(overlap) || [];
     const newSignatures = signatures.slice(overlap);
     state.historyHtml.push(...newHtml);
+    state.historyNodes.push(...newHtml.map((_, index) => newNodes[index] || null));
     state.historySignatures.push(...newSignatures);
     if (state.historyHtml.length > MAX_RETAINED_MESSAGES) {
       const excess = state.historyHtml.length - MAX_RETAINED_MESSAGES;
       state.historyHtml.splice(0, excess);
+      state.historyNodes.splice(0, excess);
       state.historySignatures.splice(0, excess);
     }
     return newHtml.length > 0;
@@ -5283,13 +5285,81 @@
     if (state.restoredDomActive) {
       return;
     }
-    rememberMessageHtml(getContentMessages(content).html, state);
+    rememberMessageRecords(getContentMessages(content), state);
   }
   function rememberAddedChatNodes(nodes, state) {
-    const html = nodes.filter((node) => (node.textContent || "").trim()).map(getMessageHtml);
-    if (rememberMessageHtml(html, state)) {
+    const retainedNodes = nodes.filter((node) => !isRestoredChatMessageNode(node, state) && (node.textContent || "").trim());
+    const html = retainedNodes.map(getMessageHtml);
+    if (rememberMessageRecords({ html, nodes: retainedNodes }, state)) {
       state.historyVisibleUntil = performance.now() + RESTORED_HISTORY_DISPLAY_MS;
     }
+  }
+  function appendRetainedHtmlFallback(content, html) {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    if (template.content) {
+      content.appendChild(template.content.cloneNode(true));
+      return;
+    }
+    const fallback = document.createElement("span");
+    fallback.innerHTML = html;
+    content.appendChild(fallback);
+  }
+  function getNodePath(root, target) {
+    const path = [];
+    let current = target;
+    while (current && current !== root) {
+      const parent = current.parentNode;
+      if (!parent) {
+        return null;
+      }
+      path.unshift(Array.prototype.indexOf.call(parent.childNodes, current));
+      current = parent;
+    }
+    return current === root ? path : null;
+  }
+  function getNodeByPath(root, path) {
+    let current = root;
+    for (const index of path) {
+      current = current.childNodes[index] || null;
+      if (!current) {
+        return null;
+      }
+    }
+    return current;
+  }
+  function markRestoredChatMessageNode(node, state) {
+    state.restoredNodes.add(node);
+    if (node instanceof Element) {
+      node.setAttribute(RESTORED_CHAT_MESSAGE_ATTR, "true");
+    }
+  }
+  function cloneRetainedMessageNode(retainedNode, state) {
+    const restoredNode = retainedNode.cloneNode(true);
+    markRestoredChatMessageNode(restoredNode, state);
+    if (!(retainedNode instanceof Element) || !(restoredNode instanceof Element)) {
+      return restoredNode;
+    }
+    restoredNode.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target instanceof Node ? event.target : restoredNode;
+        const path = getNodePath(restoredNode, target);
+        const retainedTarget = path ? getNodeByPath(retainedNode, path) : retainedNode;
+        const clickTarget = retainedTarget instanceof HTMLElement ? retainedTarget : retainedNode instanceof HTMLElement ? retainedNode : null;
+        if (!clickTarget) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        clickTarget.click();
+      },
+      true
+    );
+    return restoredNode;
+  }
+  function isRestoredChatMessageNode(node, state) {
+    return state.restoredNodes.has(node) || node instanceof Element && (node.hasAttribute(RESTORED_CHAT_MESSAGE_ATTR) || Boolean(node.closest(`[${RESTORED_CHAT_MESSAGE_ATTR}]`)));
   }
   function restoreRetainedChatMessages(content, state) {
     if (!state.historyHtml.length) {
@@ -5300,7 +5370,19 @@
       return;
     }
     state.restoring = true;
-    content.innerHTML = state.historyHtml.join("");
+    content.innerHTML = "";
+    for (let index = 0; index < state.historyHtml.length; index += 1) {
+      const retainedNode = state.historyNodes[index];
+      if (retainedNode) {
+        content.appendChild(cloneRetainedMessageNode(retainedNode, state));
+      } else {
+        const childCountBeforeAppend = content.childNodes.length;
+        appendRetainedHtmlFallback(content, state.historyHtml[index]);
+        for (const node of Array.from(content.childNodes).slice(childCountBeforeAppend)) {
+          markRestoredChatMessageNode(node, state);
+        }
+      }
+    }
     state.restoring = false;
     state.restoredDomActive = true;
   }
@@ -5444,11 +5526,13 @@
       const state = {
         historyInteractionActive: false,
         historyHtml: [],
+        historyNodes: [],
         historySignatures: [],
         historyVisibleUntil: 0,
         fadeSyncTimerId: 0,
         offsetPx: 0,
         restoredDomActive: false,
+        restoredNodes: /* @__PURE__ */ new WeakSet(),
         restoring: false,
         syncScheduled: false
       };
@@ -7475,7 +7559,7 @@
   }
 
   // src/config/qolbox-version.ts
-  var QOLBOX_VERSION = "2.0.0";
+  var QOLBOX_VERSION = "2.0.1";
   var QOLBOX_VERSION_LABEL = `v${QOLBOX_VERSION}`;
   var QOLBOX_GREASYFORK_URL = "https://greasyfork.org/en/scripts/568667-qolbox";
   var QOLBOX_GITHUB_URL = "https://github.com/AggressiveCombo/QOLBox";
@@ -7486,14 +7570,19 @@
   var RELEASE_HISTORY_CACHE_KEY = "vm.hitbox.qolboxReleaseHistory.v1";
   var RELEASE_HISTORY_CACHE_TTL_MS = 12 * 60 * 60 * 1e3;
   var RELEASE_HISTORY_FETCH_TIMEOUT_MS = 7e3;
+  var IS_DEV_VERSION = /-dev$/i.test(QOLBOX_VERSION);
+  var LOCAL_CURRENT_RELEASE_FALLBACK_NOTES = IS_DEV_VERSION ? [
+    "This development build contains the current local QOLBox changes.",
+    "Public release notes are loaded from GitHub releases and GreasyFork version history when available."
+  ] : [
+    "Adds grouped lobby tools, expanded slash commands, mobile Grab, setup controls, and a compact update notice.",
+    "Improves fullscreen, reserve, audio, chat, spectator, and away-tab behavior for this release."
+  ];
   var LOCAL_CURRENT_RELEASE_FALLBACK = [
     {
       version: QOLBOX_VERSION,
       source: "local-fallback",
-      notes: [
-        "Adds grouped lobby tools, expanded slash commands, mobile Grab, setup controls, and a compact update notice.",
-        "Improves fullscreen, reserve, audio, chat, spectator, and away-tab behavior for the v2.0.0 release."
-      ]
+      notes: LOCAL_CURRENT_RELEASE_FALLBACK_NOTES
     }
   ];
   function isRecord5(value) {
@@ -7608,11 +7697,15 @@
     }
   }
   function shouldReplaceReleaseEntry(next, current) {
+    const sourcePriorityDelta = getSourcePriority(next.source) - getSourcePriority(current.source);
+    if (sourcePriorityDelta) {
+      return sourcePriorityDelta > 0;
+    }
     const timestampDelta = getReleaseTimestamp(next) - getReleaseTimestamp(current);
     if (timestampDelta) {
       return timestampDelta > 0;
     }
-    return getSourcePriority(next.source) > getSourcePriority(current.source);
+    return false;
   }
   function dedupeLatestReleaseEntries(entries) {
     const byVersion = /* @__PURE__ */ new Map();
@@ -8681,9 +8774,9 @@
         <p class="qolboxMenuText">${escapeMenuText(releaseHistory.message)} Source: ${escapeMenuText(releaseHistory.sourceLabel)}.</p>
         ${notes}
         <div class="qolboxMenuHeaderLine">
-          <button class="qolboxMenuButton" data-qolbox-action="update-newer" ${safePageIndex <= 0 ? "disabled" : ""}>Newer</button>
-          <span class="qolboxMenuFeatureSummary">Version ${releaseNotes.length ? safePageIndex + 1 : 0} of ${pageCount}</span>
           <button class="qolboxMenuButton" data-qolbox-action="update-older" ${safePageIndex >= releaseNotes.length - 1 ? "disabled" : ""}>Older</button>
+          <span class="qolboxMenuFeatureSummary">Version ${releaseNotes.length ? safePageIndex + 1 : 0} of ${pageCount}</span>
+          <button class="qolboxMenuButton" data-qolbox-action="update-newer" ${safePageIndex <= 0 ? "disabled" : ""}>Newer</button>
         </div>
         <div class="qolboxMenuActions">
           <button class="qolboxMenuButton primary" data-qolbox-action="acknowledge-update">OK</button>

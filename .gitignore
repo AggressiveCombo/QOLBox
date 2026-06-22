@@ -6,6 +6,7 @@ goal.md
 progress.md
 
 # Local validation only
+QOLbox.regression-check.mjs
 live-checks/
 test-results/
 playwright-report/

@@ -482,9 +482,9 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
         <p class="qolboxMenuText">${escapeMenuText(releaseHistory.message)} Source: ${escapeMenuText(releaseHistory.sourceLabel)}.</p>
         ${notes}
         <div class="qolboxMenuHeaderLine">
-          <button class="qolboxMenuButton" data-qolbox-action="update-newer" ${safePageIndex <= 0 ? 'disabled' : ''}>Newer</button>
-          <span class="qolboxMenuFeatureSummary">Version ${releaseNotes.length ? safePageIndex + 1 : 0} of ${pageCount}</span>
           <button class="qolboxMenuButton" data-qolbox-action="update-older" ${safePageIndex >= releaseNotes.length - 1 ? 'disabled' : ''}>Older</button>
+          <span class="qolboxMenuFeatureSummary">Version ${releaseNotes.length ? safePageIndex + 1 : 0} of ${pageCount}</span>
+          <button class="qolboxMenuButton" data-qolbox-action="update-newer" ${safePageIndex <= 0 ? 'disabled' : ''}>Newer</button>
         </div>
         <div class="qolboxMenuActions">
           <button class="qolboxMenuButton primary" data-qolbox-action="acknowledge-update">OK</button>

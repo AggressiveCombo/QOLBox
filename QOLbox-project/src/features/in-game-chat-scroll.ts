@@ -1,5 +1,6 @@
 const CHAT_READING_CLASS = 'qolboxChatReading';
 const CHAT_INTERACTIVE_CLASS = 'qolboxChatInteractive';
+const RESTORED_CHAT_MESSAGE_ATTR = 'data-qolbox-restored-chat-message';
 const MAX_RETAINED_MESSAGES = 1000;
 const RESTORED_HISTORY_DISPLAY_MS = 6500;
 
@@ -7,10 +8,12 @@ interface ChatScrollState {
   fadeSyncTimerId: number;
   historyInteractionActive: boolean;
   historyHtml: string[];
+  historyNodes: (ChildNode | null)[];
   historySignatures: string[];
   historyVisibleUntil: number;
   offsetPx: number;
   restoredDomActive: boolean;
+  restoredNodes: WeakSet<Node>;
   restoring: boolean;
   syncScheduled: boolean;
 }
@@ -107,10 +110,12 @@ function getMessageHtml(node: Node): string {
   return container.outerHTML;
 }
 
-function getContentMessages(content: HTMLElement): { html: string[]; signatures: string[] } {
-  const html = getMessageNodes(content).map(getMessageHtml);
+function getContentMessages(content: HTMLElement): { html: string[]; nodes: ChildNode[]; signatures: string[] } {
+  const nodes = getMessageNodes(content);
+  const html = nodes.map(getMessageHtml);
   return {
     html,
+    nodes,
     signatures: html.map(value => `${value.length}:${value}`),
   };
 }
@@ -138,11 +143,15 @@ function getOverlapLength(left: readonly string[], right: readonly string[]): nu
   return 0;
 }
 
-function rememberMessageHtml(html: readonly string[], state: ChatScrollState): boolean {
+function rememberMessageRecords(
+  messages: { html: readonly string[]; nodes?: readonly ChildNode[] },
+  state: ChatScrollState
+): boolean {
   if (state.restoring) {
     return false;
   }
 
+  const html = messages.html;
   const signatures = getMessageSignatures(html);
   if (!signatures.length) {
     return false;
@@ -150,13 +159,16 @@ function rememberMessageHtml(html: readonly string[], state: ChatScrollState): b
 
   const overlap = getOverlapLength(state.historySignatures, signatures);
   const newHtml = html.slice(overlap);
+  const newNodes = messages.nodes?.slice(overlap) || [];
   const newSignatures = signatures.slice(overlap);
   state.historyHtml.push(...newHtml);
+  state.historyNodes.push(...newHtml.map((_, index) => newNodes[index] || null));
   state.historySignatures.push(...newSignatures);
 
   if (state.historyHtml.length > MAX_RETAINED_MESSAGES) {
     const excess = state.historyHtml.length - MAX_RETAINED_MESSAGES;
     state.historyHtml.splice(0, excess);
+    state.historyNodes.splice(0, excess);
     state.historySignatures.splice(0, excess);
   }
 
@@ -168,16 +180,107 @@ function rememberChatMessages(content: HTMLElement, state: ChatScrollState): voi
     return;
   }
 
-  rememberMessageHtml(getContentMessages(content).html, state);
+  rememberMessageRecords(getContentMessages(content), state);
 }
 
 function rememberAddedChatNodes(nodes: readonly Node[], state: ChatScrollState): void {
-  const html = nodes
-    .filter(node => (node.textContent || '').trim())
-    .map(getMessageHtml);
-  if (rememberMessageHtml(html, state)) {
+  const retainedNodes = nodes.filter(node => !isRestoredChatMessageNode(node, state) && (node.textContent || '').trim()) as ChildNode[];
+  const html = retainedNodes.map(getMessageHtml);
+  if (rememberMessageRecords({ html, nodes: retainedNodes }, state)) {
     state.historyVisibleUntil = performance.now() + RESTORED_HISTORY_DISPLAY_MS;
   }
+}
+
+function appendRetainedHtmlFallback(content: HTMLElement, html: string): void {
+  const template = document.createElement('template') as HTMLTemplateElement;
+  template.innerHTML = html;
+
+  if (template.content) {
+    content.appendChild(template.content.cloneNode(true));
+    return;
+  }
+
+  const fallback = document.createElement('span');
+  fallback.innerHTML = html;
+  content.appendChild(fallback);
+}
+
+function getNodePath(root: Node, target: Node): number[] | null {
+  const path: number[] = [];
+  let current: Node | null = target;
+
+  while (current && current !== root) {
+    const parent: Node | null = current.parentNode;
+    if (!parent) {
+      return null;
+    }
+
+    path.unshift(Array.prototype.indexOf.call(parent.childNodes, current));
+    current = parent;
+  }
+
+  return current === root ? path : null;
+}
+
+function getNodeByPath(root: Node, path: readonly number[]): Node | null {
+  let current: Node | null = root;
+  for (const index of path) {
+    current = current.childNodes[index] || null;
+    if (!current) {
+      return null;
+    }
+  }
+
+  return current;
+}
+
+function markRestoredChatMessageNode(node: Node, state: ChatScrollState): void {
+  state.restoredNodes.add(node);
+  if (node instanceof Element) {
+    node.setAttribute(RESTORED_CHAT_MESSAGE_ATTR, 'true');
+  }
+}
+
+function cloneRetainedMessageNode(retainedNode: ChildNode, state: ChatScrollState): ChildNode {
+  const restoredNode = retainedNode.cloneNode(true) as ChildNode;
+  markRestoredChatMessageNode(restoredNode, state);
+  if (!(retainedNode instanceof Element) || !(restoredNode instanceof Element)) {
+    return restoredNode;
+  }
+
+  restoredNode.addEventListener(
+    'click',
+    event => {
+      const target = event.target instanceof Node ? event.target : restoredNode;
+      const path = getNodePath(restoredNode, target);
+      const retainedTarget = path ? getNodeByPath(retainedNode, path) : retainedNode;
+      const clickTarget =
+        retainedTarget instanceof HTMLElement
+          ? retainedTarget
+          : retainedNode instanceof HTMLElement
+            ? retainedNode
+            : null;
+
+      if (!clickTarget) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      clickTarget.click();
+    },
+    true
+  );
+
+  return restoredNode;
+}
+
+function isRestoredChatMessageNode(node: Node, state: ChatScrollState): boolean {
+  return (
+    state.restoredNodes.has(node) ||
+    (node instanceof Element &&
+      (node.hasAttribute(RESTORED_CHAT_MESSAGE_ATTR) || Boolean(node.closest(`[${RESTORED_CHAT_MESSAGE_ATTR}]`))))
+  );
 }
 
 function restoreRetainedChatMessages(content: HTMLElement, state: ChatScrollState): void {
@@ -191,7 +294,19 @@ function restoreRetainedChatMessages(content: HTMLElement, state: ChatScrollStat
   }
 
   state.restoring = true;
-  content.innerHTML = state.historyHtml.join('');
+  content.innerHTML = '';
+  for (let index = 0; index < state.historyHtml.length; index += 1) {
+    const retainedNode = state.historyNodes[index];
+    if (retainedNode) {
+      content.appendChild(cloneRetainedMessageNode(retainedNode, state));
+    } else {
+      const childCountBeforeAppend = content.childNodes.length;
+      appendRetainedHtmlFallback(content, state.historyHtml[index]);
+      for (const node of Array.from(content.childNodes).slice(childCountBeforeAppend)) {
+        markRestoredChatMessageNode(node, state);
+      }
+    }
+  }
   state.restoring = false;
   state.restoredDomActive = true;
 }
@@ -364,11 +479,13 @@ export function createInGameChatScrollController() {
     const state: ChatScrollState = {
       historyInteractionActive: false,
       historyHtml: [],
+      historyNodes: [],
       historySignatures: [],
       historyVisibleUntil: 0,
       fadeSyncTimerId: 0,
       offsetPx: 0,
       restoredDomActive: false,
+      restoredNodes: new WeakSet<Node>(),
       restoring: false,
       syncScheduled: false,
     };

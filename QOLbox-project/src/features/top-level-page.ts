@@ -29,18 +29,13 @@ export function installTopLevelGameInputPassthrough(): void {
 
     const style = document.createElement('style');
     style.id = TOP_LEVEL_INPUT_STYLE_ID;
-    // Empty side-ad surface can overlap visible iframe controls in narrow/tall layouts.
+    // Hide the page-side ad boxes so they cannot cover or catch input around the game.
     style.textContent = `
         #adboxverticalleft,
         #adboxverticalright {
+          display: none !important;
+          visibility: hidden !important;
           pointer-events: none !important;
-        }
-
-        #adboxverticalleft iframe,
-        #adboxverticalleft a,
-        #adboxverticalright iframe,
-        #adboxverticalright a {
-          pointer-events: auto !important;
         }
       `;
     root.appendChild(style);

@@ -5,7 +5,7 @@ import { build } from 'esbuild';
 
 const projectDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const metadataPath = path.join(projectDirectory, 'src', 'userscript.meta.txt');
-const outputPath = path.resolve(projectDirectory, '..', 'QOLbox.user.js');
+const outputPath = path.join(projectDirectory, 'QOLbox.user.js');
 const metadata = (await readFile(metadataPath, 'utf8')).trimEnd();
 
 if (!metadata.startsWith('// ==UserScript==') || !metadata.endsWith('// ==/UserScript==')) {

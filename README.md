@@ -5,7 +5,7 @@ QOLBox is a userscript for [hitbox.io](https://hitbox.io) that adds fullscreen a
 ## Install
 
 - Install from [GreasyFork](https://greasyfork.org/en/scripts/568667-qolbox).
-- Or install the generated userscript directly from GitHub: [`QOLbox.user.js`](https://github.com/AggressiveCombo/QOLBox/raw/main/QOLbox.user.js).
+- Or install the generated userscript directly from GitHub: [`QOLbox.user.js`](https://github.com/AggressiveCombo/QOLBox/raw/main/QOLbox-project/QOLbox.user.js).
 - GitHub releases are available at <https://github.com/AggressiveCombo/QOLBox/releases>.
 
 ## Use
@@ -16,7 +16,7 @@ QOLBox is a userscript for [hitbox.io](https://hitbox.io) that adds fullscreen a
 
 ## Source
 
-The TypeScript source project lives in [`QOLbox-project`](QOLbox-project/). The generated installable userscript is [`QOLbox.user.js`](QOLbox.user.js).
+The TypeScript source project lives in [`QOLbox-project`](QOLbox-project/). The generated installable userscript is [`QOLbox.user.js`](QOLbox-project/QOLbox.user.js).
 
 ```powershell
 cd QOLbox-project
