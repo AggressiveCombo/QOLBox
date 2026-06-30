@@ -145,6 +145,15 @@ export function createLobbyCommandTeamActions(
 
     let moved = 0;
     for (const { id } of players) {
+      if (
+        isSamePlayerId(id, localPlayerId) &&
+        team !== TEAM_STATE_SPECTATE &&
+        isSessionMatchActive(session) &&
+        dependencies.isCurrentPlayerSpectating(session)
+      ) {
+        dependencies.noteLocallyInitiatedPlayTransition(session);
+      }
+
       if (requestPlayerTeamState(session, id, team, localPlayerId)) {
         moved += 1;
       }

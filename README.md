@@ -1,6 +1,6 @@
 # QOLBox
 
-QOLBox is a userscript for [hitbox.io](https://hitbox.io) that adds fullscreen and quality-of-life improvements, mobile `Grab`, readable chat, lobby commands, reserve spots for full lobbies, audio controls, away-tab alerts, and update-history notices.
+QOLBox is a userscript for [hitbox.io](https://hitbox.io) that adds fullscreen and quality-of-life improvements, mobile `Grab`, readable chat, lobby commands, host blacklist tools, editor map import/export, reserve spots for full lobbies, audio controls, away-tab alerts, and update-history notices.
 
 ## Install
 

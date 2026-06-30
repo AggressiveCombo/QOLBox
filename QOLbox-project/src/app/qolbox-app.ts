@@ -2,9 +2,14 @@ import { shouldRunGamePageBootstrap } from '../boot/page-entry';
 import { runQolboxStartupSequence } from '../boot/startup-sequence';
 import { FULLSCREEN_SETTLE_PASSES, RESIZE_SETTLE_PASSES } from '../config/qolbox-constants';
 import { createAdvancedSettingsController } from '../settings/advanced-settings-controller';
+import {
+  ADVANCED_BLACKLIST_ENFORCEMENT,
+  isAdvancedBlacklistEnforcementEnabled,
+} from '../settings/advanced-settings';
 import { createFeatureGateSet } from '../settings/feature-gates';
 import { createFeatureSettingsController } from '../settings/feature-settings-controller';
 import { createAudioFeatureBundle } from '../features/audio-feature-bundle';
+import { createEditorMapFileTransferController } from '../features/editor-map-file-transfer';
 import { createFeatureSideEffectsController } from '../features/feature-side-effects';
 import { createFullscreenFoundationBundle } from '../features/fullscreen-foundation-bundle';
 import { createFullscreenLayoutFeatureBundle } from '../features/fullscreen-layout-feature-bundle';
@@ -14,6 +19,7 @@ import { createInGameChatScrollController } from '../features/in-game-chat-scrol
 import { createInputFocusFeatureBundle } from '../features/input-focus-feature-bundle';
 import { createLobbyCommandsFeatureBundle } from '../features/lobby-commands-feature-bundle';
 import { createMobileFeatureBundle } from '../features/mobile-feature-bundle';
+import { createPopupKeyboardController } from '../features/popup-keyboard-controls';
 import { createQolboxMenuFeatureBundle } from '../features/qolbox-menu-feature-bundle';
 import { createQolboxShellFeatureBundle } from '../features/qolbox-shell-feature-bundle';
 import { createReserveFeatureBundle } from '../features/reserve-feature-bundle';
@@ -42,10 +48,17 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
   });
   const featureGates = createFeatureGateSet(shouldRunFeature);
 
-  const { patchInGameChatScroll } = createInGameChatScrollController();
+  const { patchEditorMapFileTransfer, removeEditorMapFileTransfer } = createEditorMapFileTransferController({
+    isEditorMapTransferEnabled: featureGates.isEditorMapTransferEnabled,
+  });
+
+  const { cleanupInGameChatScroll, patchInGameChatScroll } = createInGameChatScrollController({
+    isChatFeatureEnabled: featureGates.isChatEnabled,
+  });
 
   const {
     getAdvancedSettings,
+    setAdvancedSetting,
     setAdvancedSettings,
   } = createAdvancedSettingsController({
     onApplyPersistentFeatures: () => applyPersistentFeatures(),
@@ -64,9 +77,8 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
     clearFullscreenLayoutStyles: () => clearFullscreenLayoutStyles(),
     clearReservePasswordPromptPending: () => clearReservePasswordPromptPending(),
     clearTypingIndicators: () => clearTypingIndicators(),
+    cleanupInGameChatScroll: () => cleanupInGameChatScroll(),
     disableGameStartAlerts: () => disableGameStartAlerts(),
-    getReserveState: () => getReserveState(),
-    hideMobileGrabButton: () => hideMobileGrabButton(),
     hookHowlPrototype: () => hookHowlPrototype(),
     hookYouTubePlayer: () => hookYouTubePlayer(),
     installGameStartIndicatorHooks: () => installGameStartIndicatorHooks(),
@@ -74,21 +86,28 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
     installTabFocusHooks: () => installTabFocusHooks(),
     installYouTubeReadyCallbackHook: () => installYouTubeReadyCallbackHook(),
     patchChatTabOrder: () => patchChatTabOrder(),
+    patchEditorMapFileTransfer: () => patchEditorMapFileTransfer(),
     patchInGameChatScroll,
     patchGameVolumeMenu: () => patchGameVolumeMenu(),
     patchJukeboxKnob: () => patchJukeboxKnob(),
     patchJukeboxMenu: () => patchJukeboxMenu(),
     patchLobbyMusicController: () => patchLobbyMusicController(),
+    patchLobbyBlacklist: () => patchLobbyBlacklist(),
     patchMobileGrabButton: () => patchMobileGrabButton(),
     patchMobileQolboxHamburgerEntry: () => patchMobileQolboxHamburgerEntry(),
     patchReserveSpotFeature: () => patchReserveSpotFeature(),
     patchSlashCommands: () => patchSlashCommands(),
     patchSwitchTeamsButton: () => patchSwitchTeamsButton(),
     patchTypingIndicatorHooks: () => patchTypingIndicatorHooks(),
+    removeEditorMapFileTransfer: () => removeEditorMapFileTransfer(),
     removeJukeboxMenuItem: () => removeJukeboxMenuItem(),
+    removeMobileGrabButton: () => removeMobileGrabButton(),
     removeSwitchTeamsButton: () => removeSwitchTeamsButton(),
+    restoreChatTabOrder: () => restoreChatTabOrder(),
+    restoreJukeboxState: () => restoreJukeboxState(),
     featureGates,
     stopReserveSpot: options => stopReserveSpot(options),
+    syncScoreRows: () => syncAllScoreRowsFromPlayers(),
     syncReserveJoinButtonLabel: () => syncReserveJoinButtonLabel(),
     syncTypingIndicators: () => syncTypingIndicators(),
     updateGameStartIndicator: () => updateGameStartIndicator(),
@@ -107,7 +126,6 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
     isReserveEnabled: featureGates.isReserveEnabled,
   });
 
-  // Some controller handles below are intentionally kept in this closure for generated regression harness injection.
   const {
     handleMobileGrabPointerStart,
     hideMobileGrabButton,
@@ -115,6 +133,7 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
     isMobileQolboxMenuContext,
     layoutMobileGrabButton,
     patchMobileGrabButton,
+    removeMobileGrabButton,
     setMobileGrabPressed,
     shouldShowMobileGrabButton,
     syncMobileGrabButton,
@@ -185,6 +204,7 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
     isChatInput,
     patchChatTabOrder,
     resetBrowserScroll,
+    restoreChatTabOrder,
     restoreLobbyChatPrompt,
     shouldCaptureGameplayBackgroundFocus,
   } = createInputFocusFeatureBundle({
@@ -201,6 +221,7 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
     makeScoreRowsOpaque,
     notePlayerTyping,
     patchTypingIndicatorHooks,
+    syncAllScoreRowsFromPlayers,
     syncScoreRowsFromPlayers,
     syncTypingIndicators,
     syncWorldTypingIndicators,
@@ -255,6 +276,7 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
   });
   const { getOnboardingSteps, installQolboxMenuHooks, openQolboxMenu, renderQolboxMenu, scheduleFirstBootOnboarding } =
     qolboxMenuController;
+  const { handlePopupKeyboard, installPopupKeyboardHooks } = createPopupKeyboardController();
 
   const {
     applyGameVolume,
@@ -269,6 +291,7 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
     patchJukeboxMenu,
     patchLobbyMusicController,
     removeJukeboxMenuItem,
+    restoreJukeboxState,
     setJukeboxState,
     stopLobbyMusicIfNeeded,
   } = createAudioFeatureBundle({
@@ -292,8 +315,11 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
     installPlayerPopupDismissal,
     handleJoinSlashCommand,
     handleQolboxSlashCommand,
+    handleBlacklistSlashCommand,
     handleSpecSlashCommand,
     patchSlashCommands,
+    patchLobbyBlacklist,
+    enforceBlacklist,
     patchSwitchTeamsButton,
     requestBulkTeamState,
     requestTeamState,
@@ -304,9 +330,13 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
   } = createLobbyCommandsFeatureBundle({
     areGameStartAlertsEnabled: featureGates.isGameStartAlertEnabled,
     areLobbyCommandsEnabled: featureGates.isLobbyCommandsEnabled,
+    isBlacklistEnforcementEnabled: () =>
+      isAdvancedBlacklistEnforcementEnabled(getAdvancedSettings()),
     installStartAlertHooks: session => patchMultiplayerSessionGameStartHooks(session),
     isCurrentPlayerSpectating,
     noteLocallyInitiatedPlayTransition,
+    setBlacklistEnforcementEnabled: enabled =>
+      setAdvancedSetting(ADVANCED_BLACKLIST_ENFORCEMENT, enabled),
   });
   const {
     clearFullscreenSignature,
@@ -346,13 +376,67 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
     shouldWaitForNativeLayoutSeed,
     stopLobbyMusicIfNeeded,
     syncSpectateControlsBottomWithJukebox,
+    syncNonFullscreenHud: () => {
+      if (featureGates.isChatEnabled()) {
+        syncAllScoreRowsFromPlayers();
+        syncTypingIndicators();
+      }
+    },
     updateGameStartIndicator,
   });
+
+  // The local regression harness injects into the generated IIFE and reads these closure-scoped handles.
+  // Keep this as an explicit contract so stricter unused-symbol scans do not mistake it for dead wiring.
+  void captureGameplayInputFocus;
+  void clearGameStartIndicator;
+  void endCurrentGame;
+  void enforceBlacklist;
+  void findPlayerByName;
+  void fitEditorCanvasToNative;
+  void fitEditorLayerToFrame;
+  void getEffectiveJukeboxPercent;
+  void getOnboardingSteps;
+  void getScaledEditorFrame;
+  void getWorldTypingPosition;
+  void handleBlacklistSlashCommand;
+  void handleGameStartInteractionFocus;
+  void handleGameplayBackgroundFocus;
+  void handleJoinSlashCommand;
+  void handleMobileGrabPointerStart;
+  void hideMobileGrabButton;
+  void handlePopupKeyboard;
+  void handleQolboxSlashCommand;
+  void handleSpecSlashCommand;
+  void hasPendingLocalPlayTransition;
+  void isMobileGameMode;
+  void isMobileQolboxMenuContext;
+  void isPageFocused;
+  void isPlayableLobby;
+  void layoutMobileGrabButton;
+  void layoutRelativeHud;
+  void notePlayerTyping;
+  void requestBulkTeamState;
+  void requestTeamState;
+  void restartCurrentGame;
+  void restoreLobbyChatPrompt;
+  void setGameStartPageFocused;
+  void setGameStartWasInLobbyWhenUnfocused;
+  void setGameStartWasPlayingWhenUnfocused;
+  void setJukeboxState;
+  void setMobileGrabPressed;
+  void shouldCaptureGameplayBackgroundFocus;
+  void shouldShowMobileGrabButton;
+  void showAllHostSettings;
+  void switchTeamPlayers;
+  void syncAllScoreRowsFromPlayers;
+  void syncMobileGrabButton;
+  void syncWorldTypingIndicators;
 
   runQolboxStartupSequence({
     applyFeatureRootClasses,
     ensureGlobalStyle,
     installFullscreenHooks,
+    installPopupKeyboardHooks,
     installQolboxMenuHooks,
     installReserveSocketCaptureHook,
     installYouTubeReadyCallbackHook,

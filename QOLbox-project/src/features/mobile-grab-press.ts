@@ -1,5 +1,6 @@
 import {
   getChangedTouches,
+  getPointerIdentifier,
   getTouchIdentifier,
   isPrimaryPointerStart,
   stopMobileGrabEvent,
@@ -12,13 +13,22 @@ interface MobileGrabPressControllerOptions {
   shouldShow(): boolean;
 }
 
+const UNKNOWN_POINTER_ID = Symbol('qolbox-unknown-pointer');
+
 export function createMobileGrabPressController(options: MobileGrabPressControllerOptions) {
   let activeTouchId: unknown = null;
+  let activePointerId: unknown = null;
   let releaseHooksInstalled = false;
 
   function resetMobileGrabPress(): void {
     activeTouchId = null;
+    activePointerId = null;
     options.setPressed(false);
+  }
+
+  function getPointerKey(event: unknown): unknown {
+    const pointerId = getPointerIdentifier(event);
+    return pointerId === undefined || pointerId === null ? UNKNOWN_POINTER_ID : pointerId;
   }
 
   function handleMobileGrabTouchStart(event: unknown): void {
@@ -60,15 +70,21 @@ export function createMobileGrabPressController(options: MobileGrabPressControll
     }
 
     stopMobileGrabEvent(event);
+    activePointerId = getPointerKey(event);
     options.setPressed(true);
   }
 
   function handleMobileGrabPointerEnd(event: unknown): void {
-    if (!options.isPressed()) {
+    if (activePointerId === null) {
+      return;
+    }
+
+    if (getPointerKey(event) !== activePointerId) {
       return;
     }
 
     stopMobileGrabEvent(event);
+    activePointerId = null;
     options.setPressed(false);
   }
 

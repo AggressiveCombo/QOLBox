@@ -5,7 +5,12 @@ import { isJukeboxStyleDatasetElement } from './jukebox-dom-helpers';
 import { createJukeboxKeyboardFocusController } from './jukebox-keyboard-focus';
 import { createJukeboxKnobInteractionController } from './jukebox-knob-interaction';
 import { createJukeboxMenuController } from './jukebox-menu-control';
-import { findJukeboxKnob, readJukeboxPercentFromKnob, setJukeboxKnobVisual } from './jukebox-knob-view';
+import {
+  clearJukeboxKnobAccessibility,
+  findJukeboxKnob,
+  readJukeboxPercentFromKnob,
+  setJukeboxKnobVisual,
+} from './jukebox-knob-view';
 import { createJukeboxStateController } from './jukebox-state';
 
 interface JukeboxControllerOptions {
@@ -172,6 +177,17 @@ export function createJukeboxController(options: JukeboxControllerOptions) {
     menuController.removeJukeboxMenuItem();
   }
 
+  function restoreJukeboxState(): void {
+    const knob = findJukeboxKnob();
+    const nativePercent = readJukeboxPercentFromKnob(knob);
+    const restorePercent =
+      jukeboxState.isMuted() && nativePercent === 0
+        ? getEffectiveJukeboxPercent()
+        : nativePercent ?? getEffectiveJukeboxPercent();
+    clearJukeboxKnobAccessibility(knob);
+    youTubeAdapter.restoreTrackedPlayers(percentToJukeboxVolume(restorePercent));
+  }
+
   function setJukeboxState(nextState: { muted?: boolean; percent?: number | null }): void {
     jukeboxState.setState(nextState);
   }
@@ -188,6 +204,7 @@ export function createJukeboxController(options: JukeboxControllerOptions) {
     patchJukeboxKnob,
     patchJukeboxMenu,
     removeJukeboxMenuItem,
+    restoreJukeboxState,
     setJukeboxState,
   };
 }

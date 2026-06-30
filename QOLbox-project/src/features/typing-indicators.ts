@@ -77,6 +77,11 @@ export function createTypingIndicatorController(options: TypingIndicatorOptions)
   }
 
   function syncTypingIndicators(scorePanel: Element | null = null): boolean {
+    if (!options.isChatFeatureEnabled()) {
+      clearTypingIndicators();
+      return false;
+    }
+
     const session = options.getSession();
     if (!session) {
       worldTypingIndicators.stopTypingIndicatorPositionLoop();
@@ -98,6 +103,11 @@ export function createTypingIndicatorController(options: TypingIndicatorOptions)
   }
 
   function notePlayerTyping(playerId: unknown): boolean {
+    if (!options.isChatFeatureEnabled()) {
+      clearTypingIndicators();
+      return false;
+    }
+
     if (playerId === null || playerId === undefined) {
       return false;
     }
@@ -112,6 +122,11 @@ export function createTypingIndicatorController(options: TypingIndicatorOptions)
   }
 
   function patchTypingIndicatorHooks(): boolean {
+    if (!options.isChatFeatureEnabled()) {
+      clearTypingIndicators();
+      return false;
+    }
+
     const session = options.getSession();
     if (isNativeTypingPulseHookInstalled(session)) {
       return true;

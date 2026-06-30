@@ -1,6 +1,7 @@
 import {
   ADVANCED_ALERT_DELAY_MS,
   ADVANCED_ALERT_FLASH_INTERVAL_MS,
+  ADVANCED_BLACKLIST_ENFORCEMENT,
   ADVANCED_COMMAND_ALIASES,
   ADVANCED_RESERVE_RETRY_INTERVAL_MS,
   ADVANCED_SETTING_DEFINITIONS,
@@ -14,6 +15,7 @@ import {
 import {
   FEATURE_AUDIO,
   FEATURE_CHAT,
+  FEATURE_EDITOR_MAP_TRANSFER,
   FEATURE_FULLSCREEN,
   FEATURE_GAME_START_ALERT,
   FEATURE_LOBBY_COMMANDS,
@@ -24,7 +26,12 @@ import {
   type FeatureKey,
   type FeatureSettings,
 } from '../settings/feature-settings';
-import { isEscapeKey } from './chat-input-controls';
+import {
+  isArrowLeftKey,
+  isArrowRightKey,
+  isEnterKey,
+  isEscapeKey,
+} from './chat-keyboard-events';
 import { isQolboxMenuShortcut } from './qolbox-menu-keyboard';
 import type {
   QolboxSettingsDraft,
@@ -63,6 +70,7 @@ const FEATURE_PAGE_KEYS: readonly FeatureKey[] = [
   FEATURE_RESERVE,
   FEATURE_CHAT,
   FEATURE_GAME_START_ALERT,
+  FEATURE_EDITOR_MAP_TRANSFER,
   FEATURE_MOBILE_GRAB,
 ];
 
@@ -207,7 +215,7 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
   }
 
   function getErrorPage(key: AdvancedSettingKey): QolboxSettingsPage {
-    if (key === ADVANCED_COMMAND_ALIASES) {
+    if (key === ADVANCED_COMMAND_ALIASES || key === ADVANCED_BLACKLIST_ENFORCEMENT) {
       return 'commands';
     }
 
@@ -270,7 +278,7 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
     switch (settingsPage) {
       case 'commands':
         resetFeatureDraft([FEATURE_LOBBY_COMMANDS]);
-        resetAdvancedDraft([ADVANCED_COMMAND_ALIASES]);
+        resetAdvancedDraft([ADVANCED_COMMAND_ALIASES, ADVANCED_BLACKLIST_ENFORCEMENT]);
         break;
       case 'audio':
         resetFeatureDraft([FEATURE_AUDIO]);
@@ -425,11 +433,39 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
     if (mode !== 'closed' && isEscapeKey(event)) {
       event.preventDefault();
       event.stopImmediatePropagation();
+      closeQolboxMenu();
+      return;
+    }
 
-      if (mode === 'settings') {
-        closeQolboxMenu();
+    if (mode === 'update' && (isArrowLeftKey(event) || isArrowRightKey(event))) {
+      const action = isArrowLeftKey(event) ? 'update-older' : 'update-newer';
+      const actionElement = document.querySelector<HTMLElement>(
+        `#${options.menuId} [data-qolbox-action="${action}"]:not([disabled])`
+      );
+      if (actionElement) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        actionElement.click();
       }
+      return;
+    }
 
+    if (mode !== 'closed' && isEnterKey(event)) {
+      const activeElement = document.activeElement;
+      const actionElement =
+        activeElement instanceof HTMLElement &&
+        activeElement.closest(`#${options.menuId}`) &&
+        activeElement.matches('[data-qolbox-action]:not([disabled])')
+          ? activeElement
+          : document.querySelector<HTMLElement>(
+              `#${options.menuId} .qolboxMenuButton.primary:not([disabled]), ` +
+              `#${options.menuId} .qolboxMenuChoice.primary:not([disabled])`
+            );
+      if (actionElement) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        actionElement.click();
+      }
       return;
     }
 

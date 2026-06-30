@@ -4,6 +4,7 @@ import { formatCommandPlayerName } from './lobby-command-player-targets';
 import { createLobbyCommandActions } from './lobby-command-actions';
 import { createLobbyCommandDispatcher } from './lobby-command-dispatcher';
 import { createQolboxChatStatusWriter } from './qolbox-chat-status';
+import { createLobbyBlacklistController } from './lobby-blacklist';
 import { installSlashCommandInterceptor } from './slash-command-interceptor';
 import { installPlayerPopupDismissal } from './player-popup-dismissal';
 import { createSwitchTeamsButtonController } from './switch-teams-button';
@@ -12,9 +13,11 @@ import { isTeamMode } from './team-mode-detector';
 interface LobbyCommandsFeatureBundleOptions {
   areGameStartAlertsEnabled(): boolean;
   areLobbyCommandsEnabled(): boolean;
+  isBlacklistEnforcementEnabled(): boolean;
   installStartAlertHooks(session: unknown): void;
   isCurrentPlayerSpectating(session?: unknown): boolean;
   noteLocallyInitiatedPlayTransition(session?: unknown): void;
+  setBlacklistEnforcementEnabled(enabled: boolean): void;
 }
 
 export function createLobbyCommandsFeatureBundle(options: LobbyCommandsFeatureBundleOptions) {
@@ -30,9 +33,17 @@ export function createLobbyCommandsFeatureBundle(options: LobbyCommandsFeatureBu
     showStatus: showQolboxChatStatus,
   });
 
+  const blacklist = createLobbyBlacklistController({
+    areLobbyCommandsEnabled: options.areLobbyCommandsEnabled,
+    isEnforcementEnabled: options.isBlacklistEnforcementEnabled,
+    setEnforcementEnabled: options.setBlacklistEnforcementEnabled,
+    showStatus: showQolboxChatStatus,
+  });
+
   const dispatcher = createLobbyCommandDispatcher({
     actions: lobbyCommandActions,
     areGameStartAlertsEnabled: options.areGameStartAlertsEnabled,
+    handleBlacklistSlashCommand: blacklist.handleBlacklistSlashCommand,
     installStartAlertHooks: options.installStartAlertHooks,
     noteLocallyInitiatedPlayTransition: options.noteLocallyInitiatedPlayTransition,
     showStatus: showQolboxChatStatus,
@@ -88,6 +99,7 @@ export function createLobbyCommandsFeatureBundle(options: LobbyCommandsFeatureBu
   return {
     ...lobbyCommandActions,
     ...dispatcher,
+    ...blacklist,
     ...switchTeamsButton,
     installPlayerPopupDismissal,
     patchSlashCommands,

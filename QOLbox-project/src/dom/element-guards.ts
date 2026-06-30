@@ -39,14 +39,6 @@ function isObjectLike(value: unknown): value is object {
   return typeof value === 'object' && value !== null;
 }
 
-export function isHtmlElement(value: unknown): value is HTMLElement {
-  return typeof HTMLElement === 'function' && value instanceof HTMLElement;
-}
-
-export function isSvgElement(value: unknown): value is SVGElement {
-  return typeof SVGElement === 'function' && value instanceof SVGElement;
-}
-
 export function hasDataset(value: unknown): value is DatasetElement {
   return (
     value instanceof Element &&

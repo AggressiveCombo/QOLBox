@@ -1,6 +1,7 @@
 import {
   FEATURE_AUDIO,
   FEATURE_CHAT,
+  FEATURE_EDITOR_MAP_TRANSFER,
   FEATURE_FULLSCREEN,
   FEATURE_GAME_START_ALERT,
   FEATURE_LOBBY_COMMANDS,
@@ -21,9 +22,8 @@ interface FeatureSideEffectsOptions {
   clearFullscreenLayoutStyles(): void;
   clearReservePasswordPromptPending(): void;
   clearTypingIndicators(): void;
+  cleanupInGameChatScroll(): void;
   disableGameStartAlerts(): void;
-  getReserveState(): unknown;
-  hideMobileGrabButton(): void;
   hookHowlPrototype(): void;
   hookYouTubePlayer(): void;
   installGameStartIndicatorHooks(): void;
@@ -33,9 +33,11 @@ interface FeatureSideEffectsOptions {
   patchChatTabOrder(): void;
   patchInGameChatScroll(): void;
   patchGameVolumeMenu(): void;
+  patchEditorMapFileTransfer(): void;
   patchJukeboxKnob(): void;
   patchJukeboxMenu(): void;
   patchLobbyMusicController(): void;
+  patchLobbyBlacklist(): void;
   patchMobileGrabButton(): void;
   patchMobileQolboxHamburgerEntry(): void;
   patchReserveSpotFeature(): void;
@@ -43,9 +45,14 @@ interface FeatureSideEffectsOptions {
   patchSwitchTeamsButton(): void;
   patchTypingIndicatorHooks(): void;
   removeJukeboxMenuItem(): void;
+  removeEditorMapFileTransfer(): void;
+  removeMobileGrabButton(): void;
   removeSwitchTeamsButton(): void;
+  restoreChatTabOrder(): void;
+  restoreJukeboxState(): void;
   featureGates: FeatureGateSet;
   stopReserveSpot(options?: StopReserveOptions): void;
+  syncScoreRows(): void;
   syncReserveJoinButtonLabel(): void;
   syncTypingIndicators(): void;
   updateGameStartIndicator(): void;
@@ -55,9 +62,7 @@ export function createFeatureSideEffectsController(options: FeatureSideEffectsOp
   function disableFeatureSideEffects(featureKey: FeatureKey): void {
     switch (featureKey) {
       case FEATURE_RESERVE:
-        if (options.getReserveState()) {
-          options.stopReserveSpot({ hideNative: false });
-        }
+        options.stopReserveSpot({ hideNative: false });
         options.clearReservePasswordPromptPending();
         options.syncReserveJoinButtonLabel();
         break;
@@ -66,16 +71,26 @@ export function createFeatureSideEffectsController(options: FeatureSideEffectsOp
         break;
       case FEATURE_AUDIO:
         options.removeJukeboxMenuItem();
+        options.restoreJukeboxState();
         options.applyGameVolume();
         break;
       case FEATURE_FULLSCREEN:
         options.clearFullscreenLayoutStyles();
+        if (options.featureGates.isChatEnabled()) {
+          options.syncScoreRows();
+          options.syncTypingIndicators();
+        }
+        break;
+      case FEATURE_EDITOR_MAP_TRANSFER:
+        options.removeEditorMapFileTransfer();
         break;
       case FEATURE_MOBILE_GRAB:
-        options.hideMobileGrabButton();
+        options.removeMobileGrabButton();
         break;
       case FEATURE_CHAT:
+        options.cleanupInGameChatScroll();
         options.clearTypingIndicators();
+        options.restoreChatTabOrder();
         break;
       case FEATURE_LOBBY_COMMANDS:
         options.removeSwitchTeamsButton();
@@ -89,6 +104,7 @@ export function createFeatureSideEffectsController(options: FeatureSideEffectsOp
     options.applyFeatureRootClasses();
     options.installPlayerPopupDismissal();
     options.patchSlashCommands();
+    options.patchLobbyBlacklist();
     options.patchSwitchTeamsButton();
     options.patchMobileQolboxHamburgerEntry();
 
@@ -109,15 +125,22 @@ export function createFeatureSideEffectsController(options: FeatureSideEffectsOp
       options.patchChatTabOrder();
       options.patchInGameChatScroll();
       options.patchTypingIndicatorHooks();
+      options.syncScoreRows();
       options.syncTypingIndicators();
     } else {
-      options.clearTypingIndicators();
+      disableFeatureSideEffects(FEATURE_CHAT);
     }
 
     if (options.featureGates.isMobileGrabEnabled()) {
       options.patchMobileGrabButton();
     } else {
-      options.hideMobileGrabButton();
+      disableFeatureSideEffects(FEATURE_MOBILE_GRAB);
+    }
+
+    if (options.featureGates.isEditorMapTransferEnabled()) {
+      options.patchEditorMapFileTransfer();
+    } else {
+      disableFeatureSideEffects(FEATURE_EDITOR_MAP_TRANSFER);
     }
 
     if (options.featureGates.isAudioEnabled()) {

@@ -30,6 +30,7 @@ export interface MobileGrabController {
   isMobileQolboxMenuContext(): boolean;
   layoutMobileGrabButton(button: HTMLElement): void;
   patchMobileGrabButton(): boolean;
+  removeMobileGrabButton(): void;
   setMobileGrabPressed(pressed: unknown): void;
   shouldShowMobileGrabButton(): boolean;
   syncMobileGrabButton(): boolean;
@@ -103,7 +104,7 @@ export function createMobileGrabController(dependencies: MobileGrabControllerDep
   }
 
   function syncMobileGrabButton(): boolean {
-    if (!isMobileGameMode()) {
+    if (!dependencies.isEnabled() || !isMobileGameMode()) {
       removeMobileGrabButton();
       return false;
     }
@@ -142,7 +143,7 @@ export function createMobileGrabController(dependencies: MobileGrabControllerDep
 
   function patchMobileGrabButton(): boolean {
     if (!dependencies.isEnabled()) {
-      hideMobileGrabButton();
+      removeMobileGrabButton();
       return false;
     }
 
@@ -157,6 +158,7 @@ export function createMobileGrabController(dependencies: MobileGrabControllerDep
     isMobileQolboxMenuContext,
     layoutMobileGrabButton,
     patchMobileGrabButton,
+    removeMobileGrabButton,
     setMobileGrabPressed,
     shouldShowMobileGrabButton,
     syncMobileGrabButton,

@@ -20,3 +20,11 @@ export function isTabKey(event: unknown): boolean {
 export function isEnterKey(event: unknown): boolean {
   return readTextProperty(event, 'key') === 'Enter';
 }
+
+export function isArrowLeftKey(event: unknown): boolean {
+  return readTextProperty(event, 'key') === 'ArrowLeft' || readTextProperty(event, 'code') === 'ArrowLeft';
+}
+
+export function isArrowRightKey(event: unknown): boolean {
+  return readTextProperty(event, 'key') === 'ArrowRight' || readTextProperty(event, 'code') === 'ArrowRight';
+}

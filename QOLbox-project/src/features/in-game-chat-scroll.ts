@@ -6,16 +6,26 @@ const RESTORED_HISTORY_DISPLAY_MS = 6500;
 
 interface ChatScrollState {
   fadeSyncTimerId: number;
+  focusInListener: () => void;
+  focusOutListener: () => void;
   historyInteractionActive: boolean;
   historyHtml: string[];
   historyNodes: (ChildNode | null)[];
   historySignatures: string[];
   historyVisibleUntil: number;
   offsetPx: number;
+  pointerEnterListener: () => void;
+  pointerLeaveListener: () => void;
   restoredDomActive: boolean;
   restoredNodes: WeakSet<Node>;
   restoring: boolean;
   syncScheduled: boolean;
+  wheelListener: ((event: WheelEvent) => void) | null;
+  wheelListenerTarget: HTMLElement | null;
+}
+
+interface InGameChatScrollControllerOptions {
+  isChatFeatureEnabled(): boolean;
 }
 
 function getChatContent(chat: Element): HTMLElement | null {
@@ -311,14 +321,16 @@ function restoreRetainedChatMessages(content: HTMLElement, state: ChatScrollStat
   state.restoredDomActive = true;
 }
 
-function clearRestoredChatDom(content: HTMLElement, state: ChatScrollState): void {
-  if (!state.historyInteractionActive) {
+function clearRestoredChatDom(content: HTMLElement, state: ChatScrollState, force = false): void {
+  if (!force && !state.historyInteractionActive) {
     return;
   }
 
-  state.restoring = true;
-  content.innerHTML = '';
-  state.restoring = false;
+  if (state.restoredDomActive || state.historyInteractionActive) {
+    state.restoring = true;
+    content.innerHTML = '';
+    state.restoring = false;
+  }
   state.restoredDomActive = false;
   state.historyInteractionActive = false;
   state.historyVisibleUntil = 0;
@@ -349,12 +361,127 @@ function applyChatOffset(chat: HTMLElement, content: HTMLElement, state: ChatScr
   }
 }
 
-export function createInGameChatScrollController() {
-  const patchedChats = new WeakSet<Element>();
+export function createInGameChatScrollController(options: InGameChatScrollControllerOptions) {
+  const patchedChats = new Set<Element>();
   const chatStates = new WeakMap<Element, ChatScrollState>();
   const chatObservers = new WeakMap<Element, MutationObserver>();
   let keyHooksInstalled = false;
   let patchScheduled = false;
+
+  function removeContentWheelListener(state: ChatScrollState): void {
+    if (!state.wheelListenerTarget || !state.wheelListener) {
+      state.wheelListenerTarget = null;
+      return;
+    }
+
+    state.wheelListenerTarget.removeEventListener('wheel', state.wheelListener, true);
+    state.wheelListenerTarget = null;
+  }
+
+  function handleChatWheel(chat: HTMLElement, state: ChatScrollState, event: WheelEvent): void {
+    if (!options.isChatFeatureEnabled()) {
+      cleanupInGameChatScroll();
+      return;
+    }
+
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('input, textarea, select, button, .qolboxMenuOverlay')) {
+      return;
+    }
+
+    const content = getChatContent(chat);
+    if (!content || getMaxChatOffset(chat, content) <= 0) {
+      removeContentWheelListener(state);
+      return;
+    }
+
+    state.offsetPx -= event.deltaY;
+    applyChatOffset(chat, content, state);
+    syncContentWheelListener(chat, content, state);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function syncContentWheelListener(chat: HTMLElement, content: HTMLElement, state: ChatScrollState): void {
+    const shouldListen = options.isChatFeatureEnabled() && isChatShellVisible(chat) && getMaxChatOffset(chat, content) > 0;
+    if (!shouldListen) {
+      removeContentWheelListener(state);
+      return;
+    }
+
+    if (!state.wheelListener) {
+      state.wheelListener = event => handleChatWheel(chat, state, event);
+    }
+
+    if (state.wheelListenerTarget === content) {
+      return;
+    }
+
+    removeContentWheelListener(state);
+    content.addEventListener('wheel', state.wheelListener, { capture: true, passive: false });
+    state.wheelListenerTarget = content;
+  }
+
+  function cleanupChatScroll(chat: Element): void {
+    if (!(chat instanceof HTMLElement)) {
+      return;
+    }
+
+    const content = getChatContent(chat);
+    const state = chatStates.get(chat);
+    if (state) {
+      removeContentWheelListener(state);
+      if (state.fadeSyncTimerId) {
+        window.clearTimeout(state.fadeSyncTimerId);
+        state.fadeSyncTimerId = 0;
+      }
+      if (content) {
+        clearRestoredChatDom(content, state, true);
+        content.style.transform = '';
+        content.style.willChange = '';
+      }
+      state.offsetPx = 0;
+      state.historyVisibleUntil = 0;
+      state.syncScheduled = false;
+    }
+
+    chat.classList.remove(CHAT_INTERACTIVE_CLASS);
+    chat.classList.remove(CHAT_READING_CLASS);
+    delete chat.dataset.qolboxChatOffset;
+  }
+
+  function clearRetainedChatState(state: ChatScrollState): void {
+    state.historyHtml = [];
+    state.historyNodes = [];
+    state.historySignatures = [];
+    state.historyVisibleUntil = 0;
+    state.restoredNodes = new WeakSet<Node>();
+    state.restoredDomActive = false;
+    state.historyInteractionActive = false;
+    state.restoring = false;
+    state.syncScheduled = false;
+  }
+
+  function unpatchChatScroll(chat: Element): void {
+    cleanupChatScroll(chat);
+
+    const state = chatStates.get(chat);
+    if (state) {
+      chat.removeEventListener('pointerenter', state.pointerEnterListener);
+      chat.removeEventListener('pointerleave', state.pointerLeaveListener);
+      chat.removeEventListener('focusin', state.focusInListener, true);
+      chat.removeEventListener('focusout', state.focusOutListener, true);
+      clearRetainedChatState(state);
+    }
+
+    chatObservers.get(chat)?.disconnect();
+    chatObservers.delete(chat);
+    chatStates.delete(chat);
+    patchedChats.delete(chat);
+    if (chat instanceof HTMLElement) {
+      delete chat.dataset.qolboxChatScrollPatched;
+    }
+  }
 
   function isUserReadingChat(chat: HTMLElement, state: ChatScrollState): boolean {
     return (
@@ -387,6 +514,11 @@ export function createInGameChatScrollController() {
       return;
     }
 
+    if (!options.isChatFeatureEnabled()) {
+      cleanupInGameChatScroll();
+      return;
+    }
+
     rememberChatMessages(content, state);
 
     const visible =
@@ -409,6 +541,7 @@ export function createInGameChatScrollController() {
         clearRestoredChatDom(content, state);
         chat.classList.remove(CHAT_INTERACTIVE_CLASS);
         chat.classList.remove(CHAT_READING_CLASS);
+        syncContentWheelListener(chat, content, state);
         return;
       }
 
@@ -422,17 +555,19 @@ export function createInGameChatScrollController() {
         clearRestoredChatDom(content, state);
       }
       applyChatOffset(chat, content, state);
+      syncContentWheelListener(chat, content, state);
       if (!userReading && state.historyVisibleUntil > 0) {
         scheduleFadeSync(chat, state, state.historyVisibleUntil - now + 50);
       }
       return;
     }
 
-    clearRestoredChatDom(content, state);
+    clearRestoredChatDom(content, state, true);
     chat.classList.remove(CHAT_INTERACTIVE_CLASS);
     if (state.offsetPx <= 0) {
       chat.classList.remove(CHAT_READING_CLASS);
     }
+    syncContentWheelListener(chat, content, state);
   }
 
   function scheduleChatSync(chat: Element): void {
@@ -455,6 +590,11 @@ export function createInGameChatScrollController() {
   }
 
   function schedulePatchInGameChatScroll(delayMs = 100): void {
+    if (!options.isChatFeatureEnabled()) {
+      cleanupInGameChatScroll();
+      return;
+    }
+
     if (patchScheduled) {
       return;
     }
@@ -476,64 +616,62 @@ export function createInGameChatScrollController() {
       chat.dataset.qolboxChatScrollPatched = 'true';
     }
 
-    const state: ChatScrollState = {
+    let state: ChatScrollState;
+    const focusInListener = () => scheduleChatSync(chat);
+    const focusOutListener = () => scheduleChatSync(chat);
+    const pointerEnterListener = () => {
+      if (!options.isChatFeatureEnabled()) {
+        return;
+      }
+
+      if (chat instanceof HTMLElement && isChatVisible(chat)) {
+        chat.classList.add(CHAT_READING_CLASS);
+      }
+    };
+    const pointerLeaveListener = () => {
+      if (!options.isChatFeatureEnabled()) {
+        cleanupInGameChatScroll();
+        return;
+      }
+
+      if (state.offsetPx <= 0) {
+        chat.classList.remove(CHAT_READING_CLASS);
+      }
+      scheduleChatSync(chat);
+    };
+
+    state = {
       historyInteractionActive: false,
       historyHtml: [],
       historyNodes: [],
       historySignatures: [],
       historyVisibleUntil: 0,
       fadeSyncTimerId: 0,
+      focusInListener,
+      focusOutListener,
       offsetPx: 0,
+      pointerEnterListener,
+      pointerLeaveListener,
       restoredDomActive: false,
       restoredNodes: new WeakSet<Node>(),
       restoring: false,
       syncScheduled: false,
+      wheelListener: null,
+      wheelListenerTarget: null,
     };
     chatStates.set(chat, state);
 
-    chat.addEventListener('pointerenter', () => {
-      if (chat instanceof HTMLElement && isChatVisible(chat)) {
-        chat.classList.add(CHAT_READING_CLASS);
-      }
-    });
-
-    chat.addEventListener('pointerleave', () => {
-      if (state.offsetPx <= 0) {
-        chat.classList.remove(CHAT_READING_CLASS);
-      }
-      scheduleChatSync(chat);
-    });
-
-    chat.addEventListener(
-      'wheel',
-      event => {
-        const wheelEvent = event as WheelEvent;
-        const target = event.target instanceof Element ? event.target : null;
-        if (target?.closest('input, textarea, select, button, .qolboxMenuOverlay')) {
-          return;
-        }
-
-        if (!(chat instanceof HTMLElement)) {
-          return;
-        }
-
-        const content = getChatContent(chat);
-        if (!content) {
-          return;
-        }
-
-        state.offsetPx -= wheelEvent.deltaY;
-        applyChatOffset(chat, content, state);
-        event.preventDefault();
-        event.stopPropagation();
-      },
-      { capture: true, passive: false }
-    );
-
-    chat.addEventListener('focusin', () => scheduleChatSync(chat), true);
-    chat.addEventListener('focusout', () => scheduleChatSync(chat), true);
+    chat.addEventListener('pointerenter', state.pointerEnterListener);
+    chat.addEventListener('pointerleave', state.pointerLeaveListener);
+    chat.addEventListener('focusin', state.focusInListener, true);
+    chat.addEventListener('focusout', state.focusOutListener, true);
 
     const chatObserver = new MutationObserver(records => {
+      if (!options.isChatFeatureEnabled()) {
+        cleanupInGameChatScroll();
+        return;
+      }
+
       const content = getChatContent(chat);
       const currentState = chatStates.get(chat);
       if (content && currentState) {
@@ -571,6 +709,11 @@ export function createInGameChatScrollController() {
   function patchInGameChatScroll(): void {
     installKeyHooks();
 
+    if (!options.isChatFeatureEnabled()) {
+      cleanupInGameChatScroll();
+      return;
+    }
+
     if (!hasVisibleGameplayCanvas()) {
       return;
     }
@@ -581,7 +724,14 @@ export function createInGameChatScrollController() {
     }
   }
 
+  function cleanupInGameChatScroll(): void {
+    for (const chat of Array.from(patchedChats)) {
+      unpatchChatScroll(chat);
+    }
+  }
+
   return {
+    cleanupInGameChatScroll,
     patchInGameChatScroll,
   };
 }

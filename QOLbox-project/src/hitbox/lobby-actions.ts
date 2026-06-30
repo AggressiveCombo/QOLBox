@@ -49,3 +49,8 @@ export function giveHostToPlayer(session: unknown, playerId: unknown): boolean {
   // Vanilla host player menus send command 44 with the selected player id.
   return emitLobbyCommand(session, [getCommandId('qolboxGiveHost', 44), playerId]);
 }
+
+export function banPlayer(session: unknown, playerId: unknown): boolean {
+  // Vanilla `/ban` sends command 32 with the selected player id and ban flag.
+  return emitLobbyCommand(session, [getCommandId('CE', 32), { id: playerId, ban: 1 }]);
+}

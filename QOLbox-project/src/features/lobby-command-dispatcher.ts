@@ -18,6 +18,7 @@ type DispatchActions = Pick<
 interface CommandDispatcherDependencies {
   actions: DispatchActions;
   areGameStartAlertsEnabled(): boolean;
+  handleBlacklistSlashCommand(argument: string): boolean;
   installStartAlertHooks(session: unknown): void;
   noteLocallyInitiatedPlayTransition(session: unknown): void;
   showStatus(message: string): void;
@@ -123,7 +124,7 @@ export function createLobbyCommandDispatcher(dependencies: CommandDispatcherDepe
 
   function handleQolboxSlashCommand(message: unknown): boolean {
     const text = String(message || '').trim();
-    const match = text.match(/^\/(switch|lock|unlock|spec|red|blue|join|host|start|end|restart|r|settings)(?:\s+(.+))?$/i);
+    const match = text.match(/^\/(switch|lock|unlock|spec|red|blue|join|host|start|end|restart|r|settings|blacklist)(?:\s+(.+))?$/i);
     if (!match) {
       return false;
     }
@@ -167,6 +168,11 @@ export function createLobbyCommandDispatcher(dependencies: CommandDispatcherDepe
 
     if (commandName === '/host') {
       dependencies.actions.handleHostSlashCommand(argument);
+      return true;
+    }
+
+    if (commandName === '/blacklist') {
+      dependencies.handleBlacklistSlashCommand(argument);
       return true;
     }
 

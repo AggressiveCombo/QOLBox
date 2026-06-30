@@ -18,6 +18,7 @@ interface YouTubeJukeboxAdapterOptions {
 export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOptions) {
   let trackedPlayers = new Set<unknown>();
   let hookInstalled = false;
+  let playerStateApplied = false;
   let retryTimer = 0;
   let retryCount = 0;
   let readyCallbackHookInstalled = false;
@@ -93,6 +94,7 @@ export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOption
           Reflect.apply(unMute, player, []);
         }
       }
+      playerStateApplied = true;
     } catch {
       trackedPlayers.delete(player);
     }
@@ -107,6 +109,31 @@ export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOption
     for (const player of Array.from(trackedPlayers)) {
       applyPlayerState(player);
     }
+  }
+
+  function restoreTrackedPlayers(volume: number): void {
+    if (!playerStateApplied) {
+      return;
+    }
+
+    for (const player of Array.from(trackedPlayers)) {
+      const setVolume = readObjectProperty(player, 'setVolume');
+      if (!player || !isNativeCallable(setVolume)) {
+        trackedPlayers.delete(player);
+        continue;
+      }
+
+      try {
+        Reflect.apply(setVolume, player, [volume]);
+        const unMute = readObjectProperty(player, 'unMute');
+        if (isNativeCallable(unMute)) {
+          Reflect.apply(unMute, player, []);
+        }
+      } catch {
+        trackedPlayers.delete(player);
+      }
+    }
+    playerStateApplied = false;
   }
 
   function scheduleRetry(): void {
@@ -235,5 +262,6 @@ export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOption
     applyToTrackedPlayers,
     hookPlayerConstructor,
     installReadyCallbackHook,
+    restoreTrackedPlayers,
   };
 }

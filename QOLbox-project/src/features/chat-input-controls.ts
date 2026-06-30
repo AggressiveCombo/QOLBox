@@ -26,6 +26,7 @@ export function createChatInputController(options: ChatInputControlOptions) {
   let escapeHooksInstalled = false;
   let commandAliasHooksInstalled = false;
   let suppressEscapeKeyUntil = 0;
+  const originalTabIndexByInput = new Map<Element, string | null>();
 
   function isChatInput(element: unknown): element is Element {
     return isChatInputElement(element, options.chatInputSelector);
@@ -149,8 +150,22 @@ export function createChatInputController(options: ChatInputControlOptions) {
 
     // Browser Tab focus bypasses the game's native chat-open path; Enter still focuses chat normally.
     for (const input of document.querySelectorAll(options.chatInputSelector)) {
+      if (!originalTabIndexByInput.has(input)) {
+        originalTabIndexByInput.set(input, input.getAttribute('tabindex'));
+      }
       keepOutOfBrowserTabOrder(input);
     }
+  }
+
+  function restoreChatTabOrder(): void {
+    for (const [input, originalTabIndex] of originalTabIndexByInput) {
+      if (originalTabIndex === null) {
+        input.removeAttribute('tabindex');
+      } else {
+        input.setAttribute('tabindex', originalTabIndex);
+      }
+    }
+    originalTabIndexByInput.clear();
   }
 
   return {
@@ -160,6 +175,7 @@ export function createChatInputController(options: ChatInputControlOptions) {
     installChatEscapeHooks,
     isChatInput,
     patchChatTabOrder,
+    restoreChatTabOrder,
     restoreLobbyChatPrompt,
   };
 }

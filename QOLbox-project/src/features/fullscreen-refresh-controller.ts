@@ -19,6 +19,7 @@ interface FullscreenRefreshControllerOptions {
   setNativeFullscreenSize(dimensions: FullscreenDimensions): void;
   shouldWaitForNativeLayoutSeed(): boolean;
   stopLobbyMusicIfNeeded(): void;
+  syncNonFullscreenHud(): void;
   updateGameStartIndicator(): void;
 }
 
@@ -32,6 +33,7 @@ export function createFullscreenRefreshController(options: FullscreenRefreshCont
   function refreshFullscreen(force = false): boolean {
     if (!options.isFullscreenEnabled()) {
       options.clearFullscreenLayoutStyles();
+      options.syncNonFullscreenHud();
       return false;
     }
 

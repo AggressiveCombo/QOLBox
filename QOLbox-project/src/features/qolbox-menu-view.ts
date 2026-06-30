@@ -14,7 +14,10 @@ function findQolboxMenuPanel(menuId: string): Element | null {
 
 function focusFirstQolboxMenuControl(panel: Element): void {
   window.setTimeout(() => {
-    const focusTarget = panel.querySelector('.qolboxMenuButton.primary, .qolboxMenuToggle.active, .qolboxMenuButton');
+    const focusTarget =
+      panel.querySelector('.qolboxMenuButton.primary, .qolboxMenuChoice.primary') ||
+      panel.querySelector('.qolboxMenuToggle.active') ||
+      panel.querySelector('.qolboxMenuButton');
     focusElementWithoutScroll(focusTarget);
   }, 0);
 }

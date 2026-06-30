@@ -56,7 +56,8 @@ export function createWorldTypingIndicatorController<TypingPlayer extends WorldT
     typingPlayers: readonly TypingPlayer[],
     session: unknown = options.getSession()
   ): boolean {
-    const shouldShowWorldIndicators = options.isSessionMatchActive(session) && typingPlayers.length > 0;
+    const shouldShowWorldIndicators =
+      options.isChatFeatureEnabled() && options.isSessionMatchActive(session) && typingPlayers.length > 0;
     const existingLayer = document.querySelector('.qolboxWorldTypingLayer');
 
     if (!shouldShowWorldIndicators) {

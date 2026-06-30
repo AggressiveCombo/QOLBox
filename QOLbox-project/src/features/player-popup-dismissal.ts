@@ -24,15 +24,6 @@ function handlePointerOutsidePlayerPopup(event: Event): void {
   removePlayerPopups();
 }
 
-function handlePlayerPopupEscape(event: KeyboardEvent): void {
-  if (event.key !== 'Escape' || !removePlayerPopups()) {
-    return;
-  }
-
-  event.preventDefault();
-  event.stopImmediatePropagation();
-}
-
 export function installPlayerPopupDismissal(): void {
   if (dismissalListenersInstalled) {
     return;
@@ -41,5 +32,4 @@ export function installPlayerPopupDismissal(): void {
   dismissalListenersInstalled = true;
   document.addEventListener('pointerdown', handlePointerOutsidePlayerPopup, true);
   document.addEventListener('mousedown', handlePointerOutsidePlayerPopup, true);
-  document.addEventListener('keydown', handlePlayerPopupEscape, true);
 }

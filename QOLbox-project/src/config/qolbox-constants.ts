@@ -94,6 +94,11 @@ export const FEATURE_PATCH_TARGET_SELECTOR = [
   '.connectingWindowContainer',
   '.lobbyContainer',
   '.lobbyContainer .teamsButtonContainer',
+  '.scores',
+  '.scores .entryContainer',
+  '#editorContainer',
+  '.fileMenu',
+  '.fileMenu .item',
 ].join(', ');
 
 export const FULLSCREEN_SETTLE_PASSES = 4;
@@ -125,5 +130,6 @@ export const GAME_START_WATCH_INTERVAL_MS = 750;
 export const GAME_START_FLASH_INTERVAL_MS = 700;
 export const GAME_START_END_WATCH_INTERVAL_MS = 1000;
 export const GAME_START_LOCAL_TRANSITION_TIMEOUT_MS = 5000;
+export const GAME_START_SESSION_ENTRY_GRACE_MS = 2000;
 export const TYPING_INDICATOR_TIMEOUT_MS = 1600;
 export const IS_QOLBOX_GAME_PAGE = /\/game2\.html$/i.test(window.location.pathname);

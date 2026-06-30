@@ -16,12 +16,15 @@ interface GameStartIndicatorOptions {
   getFlashIntervalMs(): number;
   getIndicatorDelayMs(): number;
   localTransitionTimeoutMs: number;
+  sessionEntryGraceMs: number;
   watchIntervalMs: number;
   getSession(): unknown;
   isEnabled(): boolean;
+  isMatchActive(): boolean;
   isPageFocused(): boolean;
   isPlayableLobby(): boolean;
   isPlayingMatch(): boolean;
+  isSessionActive(): boolean;
 }
 
 function getTitlePrefix(reason: GameStartReason): string {
@@ -41,6 +44,10 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
   let originalTitle = '';
   let wasPlayingWhenUnfocused = false;
   let wasInLobbyWhenUnfocused = false;
+  let observedSession: unknown = null;
+  let wasSessionActive = false;
+  let sessionEntryGraceSession: unknown = null;
+  let sessionEntryGraceUntil = 0;
   let indicatorReason: GameStartReason = 'started';
   let pageFocused = true;
   const focusHooks = createGameStartFocusHookInstaller({
@@ -150,6 +157,10 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
   }
 
   function noteLocallyInitiatedPlayTransition(session: unknown = options.getSession()): void {
+    if (!options.isEnabled()) {
+      return;
+    }
+
     if (localPlayTransition.note(session)) {
       clearIndicatorTimer();
     }
@@ -161,6 +172,63 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
 
   function consumePendingLocalPlayTransition(session: unknown = options.getSession()): boolean {
     return localPlayTransition.consume(session);
+  }
+
+  function clearSessionEntryGrace(): void {
+    sessionEntryGraceSession = null;
+    sessionEntryGraceUntil = 0;
+  }
+
+  function noteSessionEntryGrace(session: unknown): void {
+    if (!session) {
+      clearSessionEntryGrace();
+      return;
+    }
+
+    sessionEntryGraceSession = session;
+    sessionEntryGraceUntil = Date.now() + options.sessionEntryGraceMs;
+  }
+
+  function consumeSessionEntryGrace(session: unknown = options.getSession()): boolean {
+    if (
+      !sessionEntryGraceSession ||
+      sessionEntryGraceSession !== session ||
+      Date.now() > sessionEntryGraceUntil
+    ) {
+      clearSessionEntryGrace();
+      return false;
+    }
+
+    clearSessionEntryGrace();
+    return true;
+  }
+
+  function observeSessionEntry(session: unknown): void {
+    if (!session) {
+      return;
+    }
+
+    if (session !== observedSession) {
+      observedSession = session;
+      wasSessionActive = false;
+    }
+
+    const sessionActive = options.isSessionActive();
+    if (!sessionActive) {
+      wasSessionActive = false;
+      clearSessionEntryGrace();
+      return;
+    }
+
+    if (!wasSessionActive) {
+      if (options.isMatchActive()) {
+        noteSessionEntryGrace(session);
+      } else {
+        clearSessionEntryGrace();
+      }
+    }
+
+    wasSessionActive = true;
   }
 
   function scheduleIndicator(reason: GameStartReason = 'pulled'): void {
@@ -226,6 +294,8 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
       return;
     }
 
+    observeSessionEntry(session);
+
     if (session === sessionHookTarget && areGameStartSessionHooksInstalled(session)) {
       return;
     }
@@ -278,6 +348,14 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
     }
 
     if (!wasPlayingWhenUnfocused && playingMatch) {
+      if (consumeSessionEntryGrace()) {
+        wasPlayingWhenUnfocused = true;
+        wasInLobbyWhenUnfocused = false;
+        clearWatchTimer();
+        clearIndicatorTimer();
+        return;
+      }
+
       scheduleIndicator(getPolledReason());
       return;
     }
@@ -285,6 +363,7 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
     if (!playingMatch) {
       wasPlayingWhenUnfocused = false;
       wasInLobbyWhenUnfocused = false;
+      clearSessionEntryGrace();
       clearWatchTimer();
       clearIndicator();
       scheduleWatch();
@@ -363,6 +442,9 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
   function disableGameStartAlerts(): void {
     wasPlayingWhenUnfocused = false;
     wasInLobbyWhenUnfocused = false;
+    observedSession = null;
+    wasSessionActive = false;
+    clearSessionEntryGrace();
     localPlayTransition.clear();
     clearWatchTimer();
     clearIndicator();

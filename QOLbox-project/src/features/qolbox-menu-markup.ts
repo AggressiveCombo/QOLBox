@@ -2,6 +2,7 @@ import { escapeMenuText } from '../dom/dom-helpers';
 import {
   ADVANCED_ALERT_DELAY_MS,
   ADVANCED_ALERT_FLASH_INTERVAL_MS,
+  ADVANCED_BLACKLIST_ENFORCEMENT,
   ADVANCED_COMMAND_ALIASES,
   ADVANCED_RESERVE_RETRY_INTERVAL_MS,
   ADVANCED_SETTING_DEFINITIONS,
@@ -12,6 +13,7 @@ import {
 import {
   FEATURE_AUDIO,
   FEATURE_CHAT,
+  FEATURE_EDITOR_MAP_TRANSFER,
   FEATURE_FULLSCREEN,
   FEATURE_GAME_START_ALERT,
   FEATURE_LOBBY_COMMANDS,
@@ -70,6 +72,7 @@ const FEATURE_PAGE_KEYS: readonly FeatureKey[] = [
   FEATURE_RESERVE,
   FEATURE_CHAT,
   FEATURE_GAME_START_ALERT,
+  FEATURE_EDITOR_MAP_TRANSFER,
   FEATURE_MOBILE_GRAB,
 ];
 
@@ -120,7 +123,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
         type: 'intro',
         title: 'Welcome to QOLBox',
         text:
-          `${options.versionLabel} adds fullscreen layout, full-lobby reserves, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, and setup controls. Choose Express for the recommended setup or Custom to decide feature by feature.`,
+          `${options.versionLabel} adds fullscreen layout, full-lobby reserves, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, map import/export, and setup controls. Choose Express for the recommended setup or Custom to decide feature by feature.`,
       },
       ...featureSteps,
       {
@@ -293,8 +296,9 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
   ): string {
     const definition = getAdvancedSettingDefinition(key);
     const value = draft.advanced[definition.key];
+    const rowKindClass = definition.kind === 'boolean' ? ' boolean' : ' numeric';
     return `
-      <div class="qolboxMenuFeatureRow compact">
+      <div class="qolboxMenuFeatureRow compact${rowKindClass}">
         <div>
           <div class="qolboxMenuFeatureName">${escapeMenuText(definition.title)}</div>
           <div class="qolboxMenuFeatureSummary">${escapeMenuText(definition.description)} Current draft: ${escapeMenuText(getAdvancedSettingValueText(definition, value))}</div>
@@ -325,8 +329,9 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
       <div class="qolboxMenuSettingsList">
         ${getFeatureRowMarkup(FEATURE_LOBBY_COMMANDS, draft)}
         ${getAdvancedRowMarkup(ADVANCED_COMMAND_ALIASES, draft, errors)}
+        ${getAdvancedRowMarkup(ADVANCED_BLACKLIST_ENFORCEMENT, draft, errors)}
       </div>
-      <div class="qolboxMenuInfoBox">Group targets: all, playing, spectators. Quote those words to target a player with that exact name. Native /kick and /ban accept exact or unique partial player names.</div>
+      <div class="qolboxMenuInfoBox">Group targets: all, playing, spectators. Quote those words to target a player with that exact name. Native /kick and /ban accept exact or unique partial player names. Use /blacklist to manage exact-name automatic host bans.</div>
       <div class="qolboxMenuActions slim">
         <button class="qolboxMenuButton" data-qolbox-action="reset-page">Reset Commands</button>
       </div>
@@ -379,7 +384,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     return `
       <div class="qolboxMenuInfoBox">
         <div class="qolboxMenuFeatureName">QOLBox ${escapeMenuText(options.versionLabel)}</div>
-        <div class="qolboxMenuFeatureSummary">Fullscreen layout, reserve spots, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, and setup options for hitbox.io.</div>
+        <div class="qolboxMenuFeatureSummary">Fullscreen layout, reserve spots, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, map import/export, and setup options for hitbox.io.</div>
       </div>
       ${getCreditsMarkup()}
     `;
@@ -457,6 +462,21 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     releaseHistory: QolboxReleaseHistoryState,
     pageIndex: number
   ): string {
+    if (releaseHistory.status === 'loading') {
+      return `
+        <div class="qolboxMenuBody">
+          <div class="qolboxMenuHeaderLine">
+            <h1 class="qolboxMenuTitle">QOLBox Updated</h1>
+          </div>
+          <p class="qolboxMenuText">Updated from ${escapeMenuText(notice.previousVersion)} to ${escapeMenuText(notice.currentVersion)}.</p>
+          <div class="qolboxMenuLoading" role="status" aria-live="polite">
+            <span class="qolboxMenuSpinner" aria-hidden="true"></span>
+            <span>Loading release notes from GitHub and GreasyFork...</span>
+          </div>
+        </div>
+      `;
+    }
+
     const releaseNotes = releaseHistory.notes;
     const safePageIndex = Math.max(0, Math.min(pageIndex, Math.max(0, releaseNotes.length - 1)));
     const release = releaseNotes[safePageIndex] || null;

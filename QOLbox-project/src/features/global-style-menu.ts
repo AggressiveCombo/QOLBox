@@ -97,22 +97,27 @@ export function getQolboxMenuGlobalStyleText(): string {
       }
 
       .qolboxMenuButton,
+      .qolboxMenuTab,
       .qolboxMenuToggle {
+        align-items: center;
         appearance: none;
         border: 0;
         box-sizing: border-box;
         cursor: pointer;
+        display: inline-flex;
         font-family: inherit;
         font-size: 12px;
         font-weight: 700;
+        justify-content: center;
         letter-spacing: 0;
         line-height: 14px;
-        min-height: 28px;
+        min-height: 30px;
       }
 
       .qolboxMenuToggle {
         background: transparent;
         color: #cfd3da;
+        padding: 0 8px;
       }
 
       .qolboxMenuToggle + .qolboxMenuToggle {
@@ -140,6 +145,7 @@ export function getQolboxMenuGlobalStyleText(): string {
         border: 1px solid rgb(92, 98, 108);
         border-radius: 3px;
         color: #f4f4f4;
+        min-width: 72px;
         padding: 0 12px;
       }
 
@@ -165,18 +171,13 @@ export function getQolboxMenuGlobalStyleText(): string {
       }
 
       .qolboxMenuTab {
-        appearance: none;
         background: rgb(31, 34, 39);
         border: 1px solid rgb(72, 78, 89);
         border-radius: 3px;
         color: #cfd3da;
-        cursor: pointer;
-        font-family: inherit;
         font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0;
         line-height: 13px;
-        min-height: 26px;
+        padding: 0 6px;
       }
 
       .qolboxMenuTab.active {
@@ -242,6 +243,10 @@ export function getQolboxMenuGlobalStyleText(): string {
         grid-template-columns: minmax(0, 1fr) 150px;
       }
 
+      .qolboxMenuFeatureRow.compact.boolean {
+        grid-template-columns: minmax(0, 1fr) 108px;
+      }
+
       .qolboxMenuFeatureName {
         color: #ffffff;
         font-size: 12px;
@@ -270,8 +275,9 @@ export function getQolboxMenuGlobalStyleText(): string {
         color: #f4f4f4;
         font-family: inherit;
         font-size: 12px;
+        height: 30px;
         line-height: 16px;
-        min-height: 26px;
+        min-height: 30px;
         min-width: 0;
         padding: 0 6px;
         width: 100%;
@@ -308,6 +314,37 @@ export function getQolboxMenuGlobalStyleText(): string {
         line-height: 15px;
         margin: 5px 0 0;
         padding-left: 16px;
+      }
+
+      .qolboxMenuLoading {
+        align-items: center;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 3px;
+        color: #d7dbe1;
+        display: flex;
+        font-size: 11px;
+        gap: 9px;
+        line-height: 15px;
+        min-height: 54px;
+        padding: 8px;
+      }
+
+      .qolboxMenuSpinner {
+        animation: qolboxMenuSpin 0.8s linear infinite;
+        border: 2px solid rgba(255, 255, 255, 0.28);
+        border-radius: 50%;
+        border-top-color: #f5c542;
+        box-sizing: border-box;
+        flex: 0 0 auto;
+        height: 18px;
+        width: 18px;
+      }
+
+      @keyframes qolboxMenuSpin {
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .qolboxMenuAboutLinks {
@@ -368,8 +405,13 @@ export function getQolboxMenuGlobalStyleText(): string {
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .qolboxMenuOverlay {
+        .qolboxMenuOverlay,
+        .qolboxMenuSpinner {
           transition: none !important;
+        }
+
+        .qolboxMenuSpinner {
+          animation-duration: 1.6s;
         }
       }
     `;

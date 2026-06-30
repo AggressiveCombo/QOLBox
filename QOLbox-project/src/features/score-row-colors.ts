@@ -34,11 +34,13 @@ export function getScoreRowName(row: Element | null | undefined): string {
 }
 
 export function createScoreRowColorController(options: ScoreRowColorOptions) {
+  const scoreRowColorsByKey = new Map<string, RgbColor>();
+
   function isFallbackScoreRowColor(color: RgbColor | null): boolean {
     return colorsMatch(color, options.fallbackRgb);
   }
 
-  function getPlayerScoreColor(player: unknown): RgbColor | null {
+  function getPlayerDirectScoreColor(player: unknown): RgbColor | null {
     for (const value of getPlayerColorCandidates(player)) {
       const parsed = parsePlayerRgbColor(value);
       if (parsed) {
@@ -46,7 +48,58 @@ export function createScoreRowColorController(options: ScoreRowColorOptions) {
       }
     }
 
+    return null;
+  }
+
+  function getScoreRowColorKeys(row: Element, player: unknown): string[] {
+    const keys = new Set<string>();
+    const rowName = getScoreRowName(row);
+    const playerName = normalizeScoreName(getPlayerDisplayName(player));
+    const teamState = options.getPlayerTeamState(player);
+
+    if (rowName) {
+      keys.add(`row:${rowName}`);
+    }
+
+    if (playerName) {
+      keys.add(`player:${playerName}`);
+    }
+
+    if (Number.isFinite(teamState)) {
+      keys.add(`team:${teamState}`);
+    }
+
+    return Array.from(keys);
+  }
+
+  function rememberScoreRowColor(keys: readonly string[], color: RgbColor | null): void {
+    if (!color || isFallbackScoreRowColor(color)) {
+      return;
+    }
+
+    for (const key of keys) {
+      scoreRowColorsByKey.set(key, { ...color, alpha: 1 });
+    }
+  }
+
+  function getRememberedScoreRowColor(keys: readonly string[]): RgbColor | null {
+    for (const key of keys) {
+      const color = scoreRowColorsByKey.get(key);
+      if (color) {
+        return color;
+      }
+    }
+
+    return null;
+  }
+
+  function getTeamScoreColor(player: unknown): RgbColor | null {
     return options.teamScoreColors.get(options.getPlayerTeamState(player)) || null;
+  }
+
+  function getPlayerScoreColor(row: Element, player: unknown): RgbColor | null {
+    const keys = getScoreRowColorKeys(row, player);
+    return getPlayerDirectScoreColor(player) || getRememberedScoreRowColor(keys) || getTeamScoreColor(player);
   }
 
   function syncScoreRowTextContrast(row: Element): boolean {
@@ -72,6 +125,20 @@ export function createScoreRowColorController(options: ScoreRowColorOptions) {
     return changed;
   }
 
+  function getUniquePlayersByName(players: readonly unknown[]): Map<string, unknown | null> {
+    const playersByName = new Map<string, unknown | null>();
+    for (const player of players) {
+      const name = normalizeScoreName(getPlayerDisplayName(player));
+      if (!name) {
+        continue;
+      }
+
+      playersByName.set(name, playersByName.has(name) ? null : player);
+    }
+
+    return playersByName;
+  }
+
   function syncScoreRowsFromPlayers(scorePanel: Element): boolean {
     const rows = Array.from(scorePanel.querySelectorAll('.entryContainer'));
     const players = options.getScorePlayers();
@@ -79,27 +146,29 @@ export function createScoreRowColorController(options: ScoreRowColorOptions) {
       return false;
     }
 
-    const playersByName = new Map<string, unknown>();
-    for (const player of players) {
-      const name = normalizeScoreName(getPlayerDisplayName(player));
-      if (name) {
-        playersByName.set(name, player);
-      }
-    }
+    const playersByName = getUniquePlayersByName(players);
 
     let changed = false;
     rows.forEach((row, index) => {
       const inlineColor = parseCssRgbColor(getElementBackgroundColor(row));
       const computedColor = parseCssRgbColor(window.getComputedStyle(row).backgroundColor);
-      const player = playersByName.get(getScoreRowName(row)) || players[index];
-      const playerColor = getPlayerScoreColor(player);
+      const currentColor = inlineColor || computedColor;
+      const namedPlayer = playersByName.get(getScoreRowName(row));
+      const player = namedPlayer || players[index];
+      const colorKeys = getScoreRowColorKeys(row, player);
 
-      if (!playerColor || (inlineColor && !isFallbackScoreRowColor(inlineColor))) {
+      if (currentColor && !isFallbackScoreRowColor(currentColor)) {
+        rememberScoreRowColor(colorKeys, currentColor);
+      }
+
+      const playerColor = getPlayerScoreColor(row, player);
+
+      if (!playerColor) {
         changed = syncScoreRowTextContrast(row) || changed;
         return;
       }
 
-      if (!inlineColor && computedColor && !isFallbackScoreRowColor(computedColor)) {
+      if (currentColor && colorsMatch(currentColor, playerColor)) {
         changed = syncScoreRowTextContrast(row) || changed;
         return;
       }
@@ -112,33 +181,45 @@ export function createScoreRowColorController(options: ScoreRowColorOptions) {
     return changed;
   }
 
+  function syncAllScoreRowsFromPlayers(): boolean {
+    let changed = false;
+    for (const scorePanel of document.querySelectorAll('.scores')) {
+      changed = syncScoreRowsFromPlayers(scorePanel) || changed;
+    }
+
+    return changed;
+  }
+
   function makeScoreRowsOpaque(scorePanel: Element): void {
-    for (const row of scorePanel.querySelectorAll('.entryContainer')) {
+    const rows = Array.from(scorePanel.querySelectorAll('.entryContainer'));
+    const players = options.getScorePlayers();
+
+    rows.forEach((row, index) => {
       const inlineColor = parseCssRgbColor(getElementBackgroundColor(row));
       const computedColor = parseCssRgbColor(window.getComputedStyle(row).backgroundColor);
       const parsedColor = inlineColor || computedColor;
-      if (!parsedColor || parsedColor.alpha >= 1) {
-        syncScoreRowTextContrast(row);
-        continue;
+      const player = players[index];
+      const colorKeys = getScoreRowColorKeys(row, player);
+
+      if (parsedColor && !isFallbackScoreRowColor(parsedColor)) {
+        rememberScoreRowColor(colorKeys, parsedColor);
       }
 
-      // The vanilla CSS fallback is red; locking that in before the game fills player colors makes every pill red.
-      if (!inlineColor && isFallbackScoreRowColor(parsedColor)) {
-        syncScoreRowTextContrast(row);
-        continue;
+      if (parsedColor && parsedColor.alpha < 1 && (inlineColor || !isFallbackScoreRowColor(parsedColor))) {
+        options.setImportantStyle(
+          row,
+          'background-color',
+          `rgb(${parsedColor.red}, ${parsedColor.green}, ${parsedColor.blue})`
+        );
       }
 
-      options.setImportantStyle(
-        row,
-        'background-color',
-        `rgb(${parsedColor.red}, ${parsedColor.green}, ${parsedColor.blue})`
-      );
       syncScoreRowTextContrast(row);
-    }
+    });
   }
 
   return {
     makeScoreRowsOpaque,
+    syncAllScoreRowsFromPlayers,
     syncScoreRowsFromPlayers,
   };
 }

@@ -2,8 +2,8 @@
 // @name         QOLBox
 // @namespace    Violentmonkey Scripts
 // @author       gpt-5.4 and gpt-5.5
-// @version      2.0.1
-// @description  Fullscreen hitbox.io, reserve spots, away-tab alerts, audio controls, mobile Grab, readable chat, lobby commands, and first-start setup for hitbox.io.
+// @version      2.1.0
+// @description  Fullscreen hitbox.io, reserve spots, away-tab alerts, audio controls, mobile Grab, readable chat, lobby commands, map import/export, and first-start setup for hitbox.io.
 // @license      ISC
 // @match        https://hitbox.io/
 // @match        https://www.hitbox.io/
@@ -102,7 +102,12 @@
     ".passwordWindowContainer",
     ".connectingWindowContainer",
     ".lobbyContainer",
-    ".lobbyContainer .teamsButtonContainer"
+    ".lobbyContainer .teamsButtonContainer",
+    ".scores",
+    ".scores .entryContainer",
+    "#editorContainer",
+    ".fileMenu",
+    ".fileMenu .item"
   ].join(", ");
   var FULLSCREEN_SETTLE_PASSES = 4;
   var FULLSCREEN_NATIVE_LAYOUT_WAIT_MS = 2500;
@@ -130,6 +135,7 @@
   var GAME_START_FLASH_INTERVAL_MS = 700;
   var GAME_START_END_WATCH_INTERVAL_MS = 1e3;
   var GAME_START_LOCAL_TRANSITION_TIMEOUT_MS = 5e3;
+  var GAME_START_SESSION_ENTRY_GRACE_MS = 2e3;
   var TYPING_INDICATOR_TIMEOUT_MS = 1600;
   var IS_QOLBOX_GAME_PAGE = /\/game2\.html$/i.test(window.location.pathname);
 
@@ -287,6 +293,10 @@
   // src/boot/page-entry.ts
   function shouldRunGamePageBootstrap() {
     if (IS_QOLBOX_GAME_PAGE) {
+      if (window.__qolboxGamePageBootstrapInstalled) {
+        return false;
+      }
+      window.__qolboxGamePageBootstrapInstalled = true;
       return true;
     }
     installTopLevelGameInputPassthrough();
@@ -306,6 +316,7 @@
     options.applyFeatureRootClasses();
     options.ensureGlobalStyle();
     options.installQolboxMenuHooks();
+    options.installPopupKeyboardHooks();
     if (options.isReserveEnabled()) {
       options.installReserveSocketCaptureHook();
     }
@@ -325,6 +336,7 @@
   // src/settings/advanced-settings.ts
   var ADVANCED_RESERVE_RETRY_INTERVAL_MS = "reserveRetryIntervalMs";
   var ADVANCED_COMMAND_ALIASES = "commandAliases";
+  var ADVANCED_BLACKLIST_ENFORCEMENT = "blacklistEnforcement";
   var ADVANCED_ALERT_DELAY_MS = "gameStartAlertDelayMs";
   var ADVANCED_ALERT_FLASH_INTERVAL_MS = "gameStartAlertFlashIntervalMs";
   var ADVANCED_TYPING_DURATION_MS = "typingIndicatorDurationMs";
@@ -346,6 +358,13 @@
       kind: "boolean",
       title: "Command aliases",
       description: "Enable shorthand commands such as /rec and /r.",
+      defaultValue: true
+    },
+    {
+      key: ADVANCED_BLACKLIST_ENFORCEMENT,
+      kind: "boolean",
+      title: "Automatic blacklist",
+      description: "Automatically ban exact-name blacklist matches while you are host.",
       defaultValue: true
     },
     {
@@ -450,6 +469,9 @@
   function areAdvancedCommandAliasesEnabled(settings = loadAdvancedSettings()) {
     return settings[ADVANCED_COMMAND_ALIASES];
   }
+  function isAdvancedBlacklistEnforcementEnabled(settings = loadAdvancedSettings()) {
+    return settings[ADVANCED_BLACKLIST_ENFORCEMENT];
+  }
 
   // src/settings/advanced-settings-controller.ts
   function createAdvancedSettingsController(options) {
@@ -513,6 +535,7 @@
   var FEATURE_GAME_START_ALERT = "gameStartAlert";
   var FEATURE_MOBILE_GRAB = "mobileGrab";
   var FEATURE_LOBBY_COMMANDS = "lobbyCommands";
+  var FEATURE_EDITOR_MAP_TRANSFER = "editorMapTransfer";
   var FEATURE_SETTINGS_KEY = "vm.hitbox.qolboxFeatures";
   var FEATURE_DEFINITIONS = [
     {
@@ -556,7 +579,13 @@
       title: "Lobby Commands",
       shortTitle: "Commands",
       summary: "Add practical lobby controls, bulk player targets, and the complete host-settings listing.",
-      onboardingText: "Use /spec, /join, /red, /blue, /switch, /lock, /unlock, /host, /start, /end and /restart. /rec is shorthand for /record, and /r is shorthand for /restart. Use all, playing, or spectators for group targets, /settings all for every host setting, and exact or unique partial names with native /kick and /ban."
+      onboardingText: "Use /spec, /join, /red, /blue, /switch, /lock, /unlock, /host, /start, /end, /restart, and /blacklist. /rec is shorthand for /record, and /r is shorthand for /restart. Use all, playing, or spectators for group targets, /settings all for every host setting, and exact or unique partial names with native /kick and /ban."
+    },
+    {
+      key: FEATURE_EDITOR_MAP_TRANSFER,
+      title: "Map Import and Export",
+      shortTitle: "Map Files",
+      summary: "Add local Import and Export items to the editor File menu for saving map files on your computer."
     }
   ];
   var DEFAULT_FEATURE_SETTINGS = {
@@ -566,7 +595,8 @@
     [FEATURE_CHAT]: true,
     [FEATURE_GAME_START_ALERT]: true,
     [FEATURE_MOBILE_GRAB]: true,
-    [FEATURE_LOBBY_COMMANDS]: true
+    [FEATURE_LOBBY_COMMANDS]: true,
+    [FEATURE_EDITOR_MAP_TRANSFER]: true
   };
   function isRecord2(value) {
     return typeof value === "object" && value !== null;
@@ -609,6 +639,7 @@
     return {
       isAudioEnabled: () => shouldRunFeature(FEATURE_AUDIO),
       isChatEnabled: () => shouldRunFeature(FEATURE_CHAT),
+      isEditorMapTransferEnabled: () => shouldRunFeature(FEATURE_EDITOR_MAP_TRANSFER),
       isFullscreenEnabled: () => shouldRunFeature(FEATURE_FULLSCREEN),
       isGameStartAlertEnabled: () => shouldRunFeature(FEATURE_GAME_START_ALERT),
       isLobbyCommandsEnabled: () => shouldRunFeature(FEATURE_LOBBY_COMMANDS),
@@ -1319,6 +1350,7 @@
   function createYouTubeJukeboxAdapter(options) {
     let trackedPlayers = /* @__PURE__ */ new Set();
     let hookInstalled = false;
+    let playerStateApplied = false;
     let retryTimer = 0;
     let retryCount = 0;
     let readyCallbackHookInstalled = false;
@@ -1383,6 +1415,7 @@
             Reflect.apply(unMute, player, []);
           }
         }
+        playerStateApplied = true;
       } catch {
         trackedPlayers.delete(player);
       }
@@ -1395,6 +1428,28 @@
       for (const player of Array.from(trackedPlayers)) {
         applyPlayerState(player);
       }
+    }
+    function restoreTrackedPlayers(volume) {
+      if (!playerStateApplied) {
+        return;
+      }
+      for (const player of Array.from(trackedPlayers)) {
+        const setVolume = readObjectProperty(player, "setVolume");
+        if (!player || !isNativeCallable2(setVolume)) {
+          trackedPlayers.delete(player);
+          continue;
+        }
+        try {
+          Reflect.apply(setVolume, player, [volume]);
+          const unMute = readObjectProperty(player, "unMute");
+          if (isNativeCallable2(unMute)) {
+            Reflect.apply(unMute, player, []);
+          }
+        } catch {
+          trackedPlayers.delete(player);
+        }
+      }
+      playerStateApplied = false;
     }
     function scheduleRetry() {
       if (!options.isEnabled() || hookInstalled || retryTimer || retryCount >= options.maxRetries) {
@@ -1504,7 +1559,8 @@
     return {
       applyToTrackedPlayers,
       hookPlayerConstructor,
-      installReadyCallbackHook
+      installReadyCallbackHook,
+      restoreTrackedPlayers
     };
   }
 
@@ -1584,12 +1640,19 @@
   function isEnterKey(event) {
     return readTextProperty(event, "key") === "Enter";
   }
+  function isArrowLeftKey(event) {
+    return readTextProperty(event, "key") === "ArrowLeft" || readTextProperty(event, "code") === "ArrowLeft";
+  }
+  function isArrowRightKey(event) {
+    return readTextProperty(event, "key") === "ArrowRight" || readTextProperty(event, "code") === "ArrowRight";
+  }
 
   // src/features/chat-input-controls.ts
   function createChatInputController(options) {
     let escapeHooksInstalled = false;
     let commandAliasHooksInstalled = false;
     let suppressEscapeKeyUntil = 0;
+    const originalTabIndexByInput = /* @__PURE__ */ new Map();
     function isChatInput(element) {
       return isChatInputElement(element, options.chatInputSelector);
     }
@@ -1685,8 +1748,21 @@
         return;
       }
       for (const input of document.querySelectorAll(options.chatInputSelector)) {
+        if (!originalTabIndexByInput.has(input)) {
+          originalTabIndexByInput.set(input, input.getAttribute("tabindex"));
+        }
         keepOutOfBrowserTabOrder(input);
       }
+    }
+    function restoreChatTabOrder() {
+      for (const [input, originalTabIndex] of originalTabIndexByInput) {
+        if (originalTabIndex === null) {
+          input.removeAttribute("tabindex");
+        } else {
+          input.setAttribute("tabindex", originalTabIndex);
+        }
+      }
+      originalTabIndexByInput.clear();
     }
     return {
       closeChatInput,
@@ -1695,6 +1771,7 @@
       installChatEscapeHooks,
       isChatInput,
       patchChatTabOrder,
+      restoreChatTabOrder,
       restoreLobbyChatPrompt
     };
   }
@@ -2029,6 +2106,21 @@
     }
     updateJukeboxKnobAccessibility(knob, visualPercent, state);
   }
+  function clearJukeboxKnobAccessibility(knob) {
+    if (!knob) {
+      return;
+    }
+    knob.removeAttribute("aria-label");
+    knob.removeAttribute("aria-orientation");
+    knob.removeAttribute("aria-valuemin");
+    knob.removeAttribute("aria-valuemax");
+    knob.removeAttribute("aria-valuenow");
+    knob.removeAttribute("aria-valuetext");
+    knob.removeAttribute("role");
+    if (knob.getAttribute("tabindex") === "0") {
+      knob.removeAttribute("tabindex");
+    }
+  }
 
   // src/features/jukebox-state.ts
   function createJukeboxStateController() {
@@ -2218,6 +2310,13 @@
     function removeJukeboxMenuItem() {
       menuController.removeJukeboxMenuItem();
     }
+    function restoreJukeboxState() {
+      const knob = findJukeboxKnob();
+      const nativePercent = readJukeboxPercentFromKnob(knob);
+      const restorePercent = jukeboxState.isMuted() && nativePercent === 0 ? getEffectiveJukeboxPercent() : nativePercent ?? getEffectiveJukeboxPercent();
+      clearJukeboxKnobAccessibility(knob);
+      youTubeAdapter.restoreTrackedPlayers(percentToJukeboxVolume(restorePercent));
+    }
     function setJukeboxState(nextState) {
       jukeboxState.setState(nextState);
     }
@@ -2233,6 +2332,7 @@
       patchJukeboxKnob,
       patchJukeboxMenu,
       removeJukeboxMenuItem,
+      restoreJukeboxState,
       setJukeboxState
     };
   }
@@ -2342,14 +2442,383 @@
     };
   }
 
+  // src/hitbox/editor-map-adapter.ts
+  var EDITOR_MAP_STATE_PATH = ["multiplayerSession", "TJ", "JD", "tP"];
+  var EDITOR_FILE_MENU_SELECTOR = "#editorContainer .fileMenu";
+  var EDITOR_MENU_ITEM_SELECTOR = ".item";
+  function getEditorMapState() {
+    const maps = readNativePath(window, EDITOR_MAP_STATE_PATH);
+    if (!Array.isArray(maps)) {
+      return null;
+    }
+    return readNativeProperty(maps[0], "state") || null;
+  }
+  function isNativeFunction(value) {
+    return typeof value === "function";
+  }
+  function callMapExport(mapState) {
+    try {
+      const { called, result } = callNativeMethod(mapState, "rc");
+      if (!called || typeof result !== "string") {
+        return null;
+      }
+      const mapData = result.trim();
+      return mapData ? mapData : null;
+    } catch {
+      return null;
+    }
+  }
+  function getNativeEditorFileItem(label) {
+    const fileMenu = document.querySelector(EDITOR_FILE_MENU_SELECTOR);
+    if (!(fileMenu instanceof HTMLElement)) {
+      return null;
+    }
+    return Array.from(fileMenu.querySelectorAll(EDITOR_MENU_ITEM_SELECTOR)).find((item) => item instanceof HTMLElement && item.textContent?.trim() === label) || null;
+  }
+  function replaceNativeMethod(target, methodName, replacement) {
+    if (!isNativeReflectTarget(target)) {
+      return null;
+    }
+    const original = readNativeProperty(target, methodName);
+    if (!isNativeFunction(original) || !setNativeReflectProperty(target, methodName, replacement)) {
+      return null;
+    }
+    return () => {
+      setNativeReflectProperty(target, methodName, original);
+    };
+  }
+  function getCapturedMapState(candidate) {
+    if (!isNativeObject(candidate)) {
+      return null;
+    }
+    const state = readNativeProperty(candidate, "state");
+    return isNativeObject(state) ? state : null;
+  }
+  function exportCurrentEditorMapViaNativePlayClone() {
+    const playItem = getNativeEditorFileItem("Play");
+    const session = readNativeProperty(window, "multiplayerSession");
+    const lobbyState = readNativePath(window, ["multiplayerSession", "JD"]);
+    if (!(playItem instanceof HTMLElement) || !isNativeReflectTarget(session) || !isNativeReflectTarget(lobbyState)) {
+      return null;
+    }
+    let capturedMapState = null;
+    const captureMap = (candidate) => {
+      capturedMapState = getCapturedMapState(candidate) || capturedMapState;
+    };
+    const restores = [
+      replaceNativeMethod(lobbyState, "tU", (maps) => {
+        if (Array.isArray(maps)) {
+          captureMap(maps[0]);
+        }
+      }),
+      replaceNativeMethod(lobbyState, "sU", (map) => {
+        captureMap(map);
+      }),
+      replaceNativeMethod(session, "_J", () => void 0)
+    ].filter((restore) => typeof restore === "function");
+    if (!restores.length) {
+      return null;
+    }
+    try {
+      playItem.click();
+      return callMapExport(capturedMapState);
+    } catch {
+      return null;
+    } finally {
+      for (const restore of restores.reverse()) {
+        try {
+          restore();
+        } catch {
+        }
+      }
+    }
+  }
+  function refreshEditorAfterMapImport() {
+    try {
+      const editorController = readNativePath(window, ["multiplayerSession", "TJ"]);
+      callNativeMethod(editorController, "gW");
+    } catch {
+    }
+    try {
+      window.dispatchEvent(new Event("resize"));
+    } catch {
+    }
+  }
+  function exportEditorMapData() {
+    return exportCurrentEditorMapViaNativePlayClone() || callMapExport(getEditorMapState());
+  }
+  function importEditorMapData(mapData) {
+    const trimmedMapData = mapData.trim();
+    if (!trimmedMapData) {
+      return false;
+    }
+    try {
+      const { called } = callNativeMethod(getEditorMapState(), "ac", [trimmedMapData]);
+      if (!called) {
+        return false;
+      }
+      refreshEditorAfterMapImport();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // src/features/editor-map-file-transfer.ts
+  var EDITOR_FILE_MENU_SELECTOR2 = ".fileMenu";
+  var EDITOR_MENU_ITEM_SELECTOR2 = ".item";
+  var EDITOR_TRANSFER_ITEM_SELECTOR = "[data-qolbox-editor-map-transfer]";
+  var EDITOR_MAP_FILE_INPUT_ID = "qolboxEditorMapFileInput";
+  var EDITOR_MAP_STATUS_ID = "qolboxEditorMapStatus";
+  var EDITOR_MAP_FILE_EXTENSION = "hitboxmap";
+  var STATUS_HIDE_DELAY_MS = 2400;
+  function getMenuItems(fileMenu) {
+    return Array.from(fileMenu.querySelectorAll(EDITOR_MENU_ITEM_SELECTOR2)).filter(
+      (child) => child instanceof HTMLElement
+    );
+  }
+  function findMenuItem(fileMenu, label) {
+    return getMenuItems(fileMenu).find((item) => item.textContent?.trim() === label) || null;
+  }
+  function getDownloadTimestamp() {
+    const now = /* @__PURE__ */ new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+    return [
+      now.getFullYear(),
+      pad(now.getMonth() + 1),
+      pad(now.getDate()),
+      "-",
+      pad(now.getHours()),
+      pad(now.getMinutes()),
+      pad(now.getSeconds())
+    ].join("");
+  }
+  function createEditorMapMenuItem(label, action, handler) {
+    const item = document.createElement("div");
+    item.className = "item";
+    item.textContent = label;
+    item.setAttribute("data-qolbox-editor-map-transfer", action);
+    item.addEventListener(
+      "click",
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handler();
+      },
+      true
+    );
+    return item;
+  }
+  function isStringRecord(value) {
+    return typeof value === "object" && value !== null;
+  }
+  function extractMapDataFromParsedJson(value) {
+    if (typeof value === "string") {
+      return value.trim() || null;
+    }
+    if (!isStringRecord(value)) {
+      return null;
+    }
+    for (const key of ["leveldata", "levelData", "map", "mapData", "data"]) {
+      const mapData = value[key];
+      if (typeof mapData === "string" && mapData.trim()) {
+        return mapData.trim();
+      }
+    }
+    return null;
+  }
+  function extractMapDataFromFileText(fileText) {
+    const trimmedText = fileText.trim();
+    if (!trimmedText) {
+      return null;
+    }
+    try {
+      const jsonMapData = extractMapDataFromParsedJson(JSON.parse(trimmedText));
+      if (jsonMapData) {
+        return jsonMapData;
+      }
+    } catch {
+    }
+    return trimmedText;
+  }
+  function createEditorMapFileTransferController(options) {
+    let statusHideTimer = 0;
+    let documentHooksInstalled = false;
+    function getStatusElement() {
+      let status = document.getElementById(EDITOR_MAP_STATUS_ID);
+      if (status instanceof HTMLElement) {
+        return status;
+      }
+      const host = document.body || document.documentElement;
+      if (!host) {
+        return null;
+      }
+      status = document.createElement("div");
+      status.id = EDITOR_MAP_STATUS_ID;
+      status.className = "qolboxEditorMapStatus";
+      host.appendChild(status);
+      return status;
+    }
+    function showStatus(message, kind = "success") {
+      const status = getStatusElement();
+      if (!status) {
+        return;
+      }
+      window.clearTimeout(statusHideTimer);
+      status.textContent = message;
+      status.classList.toggle("error", kind === "error");
+      status.classList.add("visible");
+      statusHideTimer = window.setTimeout(() => {
+        status.classList.remove("visible");
+      }, STATUS_HIDE_DELAY_MS);
+    }
+    function getFileInput() {
+      const existingInput = document.getElementById(EDITOR_MAP_FILE_INPUT_ID);
+      if (existingInput instanceof HTMLInputElement) {
+        return existingInput;
+      }
+      const host = document.body || document.documentElement;
+      if (!host) {
+        return null;
+      }
+      const input = document.createElement("input");
+      input.id = EDITOR_MAP_FILE_INPUT_ID;
+      input.type = "file";
+      input.accept = `.${EDITOR_MAP_FILE_EXTENSION},.txt,.json,application/json,text/plain`;
+      input.style.display = "none";
+      input.addEventListener("change", () => {
+        const file = input.files?.[0] || null;
+        input.value = "";
+        if (file) {
+          void importMapFile(file);
+        }
+      });
+      host.appendChild(input);
+      return input;
+    }
+    function exportCurrentEditorMap() {
+      const mapData = exportEditorMapData();
+      if (!mapData) {
+        showStatus("No editor map is available to export.", "error");
+        return;
+      }
+      try {
+        const blob = new Blob([mapData], { type: "text/plain;charset=utf-8" });
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.download = `hitbox-map-${getDownloadTimestamp()}.${EDITOR_MAP_FILE_EXTENSION}`;
+        anchor.style.display = "none";
+        (document.body || document.documentElement).appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+        showStatus("Map export started.");
+      } catch {
+        showStatus("Could not export this map.", "error");
+      }
+    }
+    function requestMapImport() {
+      const input = getFileInput();
+      if (!input) {
+        showStatus("Could not open the file picker.", "error");
+        return;
+      }
+      input.click();
+    }
+    async function importMapFile(file) {
+      try {
+        const mapData = extractMapDataFromFileText(await file.text());
+        if (!mapData || !importEditorMapData(mapData)) {
+          showStatus("Could not import this map file.", "error");
+          return;
+        }
+        showStatus("Map imported.");
+      } catch {
+        showStatus("Could not import this map file.", "error");
+      }
+    }
+    function removeTransferItems(fileMenu = document.documentElement) {
+      fileMenu.querySelectorAll(EDITOR_TRANSFER_ITEM_SELECTOR).forEach((item) => item.remove());
+    }
+    function syncOpenFileMenu(fileMenu) {
+      if (!options.isEditorMapTransferEnabled()) {
+        removeTransferItems(fileMenu);
+        return false;
+      }
+      const loadItem = findMenuItem(fileMenu, "Load");
+      const dropdownContainer = loadItem?.parentElement || null;
+      if (!loadItem || !dropdownContainer) {
+        return false;
+      }
+      if (dropdownContainer.querySelector(EDITOR_TRANSFER_ITEM_SELECTOR)) {
+        return false;
+      }
+      const exportItem = createEditorMapMenuItem("Export", "export", exportCurrentEditorMap);
+      const importItem = createEditorMapMenuItem("Import", "import", requestMapImport);
+      dropdownContainer.insertBefore(exportItem, loadItem);
+      dropdownContainer.insertBefore(importItem, loadItem);
+      return true;
+    }
+    function getEventFileMenu(event) {
+      return event.target instanceof Element ? event.target.closest(EDITOR_FILE_MENU_SELECTOR2) : null;
+    }
+    function installDocumentHooks() {
+      if (documentHooksInstalled) {
+        return false;
+      }
+      documentHooksInstalled = true;
+      document.addEventListener(
+        "click",
+        (event) => {
+          const clickedFileMenu = getEventFileMenu(event);
+          const hadTransferItems = Boolean(clickedFileMenu?.querySelector(EDITOR_TRANSFER_ITEM_SELECTOR));
+          window.setTimeout(() => {
+            if (!clickedFileMenu) {
+              removeTransferItems();
+              return;
+            }
+            if (hadTransferItems) {
+              removeTransferItems(clickedFileMenu);
+              return;
+            }
+            syncOpenFileMenu(clickedFileMenu);
+          }, 0);
+        },
+        true
+      );
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          removeTransferItems();
+        }
+      }, true);
+      return true;
+    }
+    function removeEditorMapFileTransfer() {
+      window.clearTimeout(statusHideTimer);
+      removeTransferItems();
+      document.getElementById(EDITOR_MAP_FILE_INPUT_ID)?.remove();
+      document.getElementById(EDITOR_MAP_STATUS_ID)?.remove();
+    }
+    function patchEditorMapFileTransfer() {
+      if (!options.isEditorMapTransferEnabled()) {
+        removeEditorMapFileTransfer();
+        return false;
+      }
+      return installDocumentHooks();
+    }
+    return {
+      patchEditorMapFileTransfer,
+      removeEditorMapFileTransfer
+    };
+  }
+
   // src/features/feature-side-effects.ts
   function createFeatureSideEffectsController(options) {
     function disableFeatureSideEffects(featureKey) {
       switch (featureKey) {
         case FEATURE_RESERVE:
-          if (options.getReserveState()) {
-            options.stopReserveSpot({ hideNative: false });
-          }
+          options.stopReserveSpot({ hideNative: false });
           options.clearReservePasswordPromptPending();
           options.syncReserveJoinButtonLabel();
           break;
@@ -2358,16 +2827,26 @@
           break;
         case FEATURE_AUDIO:
           options.removeJukeboxMenuItem();
+          options.restoreJukeboxState();
           options.applyGameVolume();
           break;
         case FEATURE_FULLSCREEN:
           options.clearFullscreenLayoutStyles();
+          if (options.featureGates.isChatEnabled()) {
+            options.syncScoreRows();
+            options.syncTypingIndicators();
+          }
+          break;
+        case FEATURE_EDITOR_MAP_TRANSFER:
+          options.removeEditorMapFileTransfer();
           break;
         case FEATURE_MOBILE_GRAB:
-          options.hideMobileGrabButton();
+          options.removeMobileGrabButton();
           break;
         case FEATURE_CHAT:
+          options.cleanupInGameChatScroll();
           options.clearTypingIndicators();
+          options.restoreChatTabOrder();
           break;
         case FEATURE_LOBBY_COMMANDS:
           options.removeSwitchTeamsButton();
@@ -2380,6 +2859,7 @@
       options.applyFeatureRootClasses();
       options.installPlayerPopupDismissal();
       options.patchSlashCommands();
+      options.patchLobbyBlacklist();
       options.patchSwitchTeamsButton();
       options.patchMobileQolboxHamburgerEntry();
       if (options.featureGates.isReserveEnabled()) {
@@ -2397,14 +2877,20 @@
         options.patchChatTabOrder();
         options.patchInGameChatScroll();
         options.patchTypingIndicatorHooks();
+        options.syncScoreRows();
         options.syncTypingIndicators();
       } else {
-        options.clearTypingIndicators();
+        disableFeatureSideEffects(FEATURE_CHAT);
       }
       if (options.featureGates.isMobileGrabEnabled()) {
         options.patchMobileGrabButton();
       } else {
-        options.hideMobileGrabButton();
+        disableFeatureSideEffects(FEATURE_MOBILE_GRAB);
+      }
+      if (options.featureGates.isEditorMapTransferEnabled()) {
+        options.patchEditorMapFileTransfer();
+      } else {
+        disableFeatureSideEffects(FEATURE_EDITOR_MAP_TRANSFER);
       }
       if (options.featureGates.isAudioEnabled()) {
         options.installTabFocusHooks();
@@ -4333,6 +4819,7 @@
     function refreshFullscreen(force = false) {
       if (!options.isFullscreenEnabled()) {
         options.clearFullscreenLayoutStyles();
+        options.syncNonFullscreenHud();
         return false;
       }
       if (options.shouldWaitForNativeLayoutSeed()) {
@@ -4428,6 +4915,7 @@
       setNativeFullscreenSize: options.setNativeFullscreenSize,
       shouldWaitForNativeLayoutSeed: options.shouldWaitForNativeLayoutSeed,
       stopLobbyMusicIfNeeded: options.stopLobbyMusicIfNeeded,
+      syncNonFullscreenHud: options.syncNonFullscreenHud,
       updateGameStartIndicator: options.updateGameStartIndicator
     });
     const { scheduleUiWork } = createFullscreenWorkScheduler({
@@ -4806,6 +5294,10 @@
     let originalTitle = "";
     let wasPlayingWhenUnfocused = false;
     let wasInLobbyWhenUnfocused = false;
+    let observedSession = null;
+    let wasSessionActive = false;
+    let sessionEntryGraceSession = null;
+    let sessionEntryGraceUntil = 0;
     let indicatorReason = "started";
     let pageFocused = true;
     const focusHooks = createGameStartFocusHookInstaller({
@@ -4894,6 +5386,9 @@
       indicatorActive = false;
     }
     function noteLocallyInitiatedPlayTransition(session = options.getSession()) {
+      if (!options.isEnabled()) {
+        return;
+      }
       if (localPlayTransition.note(session)) {
         clearIndicatorTimer();
       }
@@ -4903,6 +5398,49 @@
     }
     function consumePendingLocalPlayTransition(session = options.getSession()) {
       return localPlayTransition.consume(session);
+    }
+    function clearSessionEntryGrace() {
+      sessionEntryGraceSession = null;
+      sessionEntryGraceUntil = 0;
+    }
+    function noteSessionEntryGrace(session) {
+      if (!session) {
+        clearSessionEntryGrace();
+        return;
+      }
+      sessionEntryGraceSession = session;
+      sessionEntryGraceUntil = Date.now() + options.sessionEntryGraceMs;
+    }
+    function consumeSessionEntryGrace(session = options.getSession()) {
+      if (!sessionEntryGraceSession || sessionEntryGraceSession !== session || Date.now() > sessionEntryGraceUntil) {
+        clearSessionEntryGrace();
+        return false;
+      }
+      clearSessionEntryGrace();
+      return true;
+    }
+    function observeSessionEntry(session) {
+      if (!session) {
+        return;
+      }
+      if (session !== observedSession) {
+        observedSession = session;
+        wasSessionActive = false;
+      }
+      const sessionActive = options.isSessionActive();
+      if (!sessionActive) {
+        wasSessionActive = false;
+        clearSessionEntryGrace();
+        return;
+      }
+      if (!wasSessionActive) {
+        if (options.isMatchActive()) {
+          noteSessionEntryGrace(session);
+        } else {
+          clearSessionEntryGrace();
+        }
+      }
+      wasSessionActive = true;
     }
     function scheduleIndicator(reason = "pulled") {
       if (!options.isEnabled() || timers.hasIndicatorTimer() || isIndicatorPageFocused()) {
@@ -4948,6 +5486,7 @@
       if (!options.isEnabled() || !session) {
         return;
       }
+      observeSessionEntry(session);
       if (session === sessionHookTarget && areGameStartSessionHooksInstalled(session)) {
         return;
       }
@@ -4991,12 +5530,20 @@
         return;
       }
       if (!wasPlayingWhenUnfocused && playingMatch) {
+        if (consumeSessionEntryGrace()) {
+          wasPlayingWhenUnfocused = true;
+          wasInLobbyWhenUnfocused = false;
+          clearWatchTimer();
+          clearIndicatorTimer();
+          return;
+        }
         scheduleIndicator(getPolledReason());
         return;
       }
       if (!playingMatch) {
         wasPlayingWhenUnfocused = false;
         wasInLobbyWhenUnfocused = false;
+        clearSessionEntryGrace();
         clearWatchTimer();
         clearIndicator();
         scheduleWatch();
@@ -5062,6 +5609,9 @@
     function disableGameStartAlerts() {
       wasPlayingWhenUnfocused = false;
       wasInLobbyWhenUnfocused = false;
+      observedSession = null;
+      wasSessionActive = false;
+      clearSessionEntryGrace();
       localPlayTransition.clear();
       clearWatchTimer();
       clearIndicator();
@@ -5147,12 +5697,18 @@
       getFlashIntervalMs: getAdvancedGameStartFlashIntervalMs,
       getIndicatorDelayMs: getAdvancedGameStartAlertDelayMs,
       localTransitionTimeoutMs: GAME_START_LOCAL_TRANSITION_TIMEOUT_MS,
+      sessionEntryGraceMs: GAME_START_SESSION_ENTRY_GRACE_MS,
       watchIntervalMs: GAME_START_WATCH_INTERVAL_MS,
       getSession: getMultiplayerSession,
       isEnabled: options.isGameStartAlertEnabled,
+      isMatchActive: () => isSessionMatchActive(getMultiplayerSession()),
       isPageFocused: gameplayState.isPageFocused,
       isPlayableLobby: gameplayState.isPlayableLobby,
-      isPlayingMatch: gameplayState.isPlayingMatch
+      isPlayingMatch: gameplayState.isPlayingMatch,
+      isSessionActive: () => {
+        const session = getMultiplayerSession();
+        return isSessionLobbyActive(session) || isSessionMatchActive(session);
+      }
     });
     return {
       ...gameplayState,
@@ -5386,13 +5942,15 @@
     state.restoring = false;
     state.restoredDomActive = true;
   }
-  function clearRestoredChatDom(content, state) {
-    if (!state.historyInteractionActive) {
+  function clearRestoredChatDom(content, state, force = false) {
+    if (!force && !state.historyInteractionActive) {
       return;
     }
-    state.restoring = true;
-    content.innerHTML = "";
-    state.restoring = false;
+    if (state.restoredDomActive || state.historyInteractionActive) {
+      state.restoring = true;
+      content.innerHTML = "";
+      state.restoring = false;
+    }
     state.restoredDomActive = false;
     state.historyInteractionActive = false;
     state.historyVisibleUntil = 0;
@@ -5421,12 +5979,110 @@
       }
     }
   }
-  function createInGameChatScrollController() {
-    const patchedChats = /* @__PURE__ */ new WeakSet();
+  function createInGameChatScrollController(options) {
+    const patchedChats = /* @__PURE__ */ new Set();
     const chatStates = /* @__PURE__ */ new WeakMap();
     const chatObservers = /* @__PURE__ */ new WeakMap();
     let keyHooksInstalled = false;
     let patchScheduled = false;
+    function removeContentWheelListener(state) {
+      if (!state.wheelListenerTarget || !state.wheelListener) {
+        state.wheelListenerTarget = null;
+        return;
+      }
+      state.wheelListenerTarget.removeEventListener("wheel", state.wheelListener, true);
+      state.wheelListenerTarget = null;
+    }
+    function handleChatWheel(chat, state, event) {
+      if (!options.isChatFeatureEnabled()) {
+        cleanupInGameChatScroll();
+        return;
+      }
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input, textarea, select, button, .qolboxMenuOverlay")) {
+        return;
+      }
+      const content = getChatContent(chat);
+      if (!content || getMaxChatOffset(chat, content) <= 0) {
+        removeContentWheelListener(state);
+        return;
+      }
+      state.offsetPx -= event.deltaY;
+      applyChatOffset(chat, content, state);
+      syncContentWheelListener(chat, content, state);
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    function syncContentWheelListener(chat, content, state) {
+      const shouldListen = options.isChatFeatureEnabled() && isChatShellVisible(chat) && getMaxChatOffset(chat, content) > 0;
+      if (!shouldListen) {
+        removeContentWheelListener(state);
+        return;
+      }
+      if (!state.wheelListener) {
+        state.wheelListener = (event) => handleChatWheel(chat, state, event);
+      }
+      if (state.wheelListenerTarget === content) {
+        return;
+      }
+      removeContentWheelListener(state);
+      content.addEventListener("wheel", state.wheelListener, { capture: true, passive: false });
+      state.wheelListenerTarget = content;
+    }
+    function cleanupChatScroll(chat) {
+      if (!(chat instanceof HTMLElement)) {
+        return;
+      }
+      const content = getChatContent(chat);
+      const state = chatStates.get(chat);
+      if (state) {
+        removeContentWheelListener(state);
+        if (state.fadeSyncTimerId) {
+          window.clearTimeout(state.fadeSyncTimerId);
+          state.fadeSyncTimerId = 0;
+        }
+        if (content) {
+          clearRestoredChatDom(content, state, true);
+          content.style.transform = "";
+          content.style.willChange = "";
+        }
+        state.offsetPx = 0;
+        state.historyVisibleUntil = 0;
+        state.syncScheduled = false;
+      }
+      chat.classList.remove(CHAT_INTERACTIVE_CLASS);
+      chat.classList.remove(CHAT_READING_CLASS);
+      delete chat.dataset.qolboxChatOffset;
+    }
+    function clearRetainedChatState(state) {
+      state.historyHtml = [];
+      state.historyNodes = [];
+      state.historySignatures = [];
+      state.historyVisibleUntil = 0;
+      state.restoredNodes = /* @__PURE__ */ new WeakSet();
+      state.restoredDomActive = false;
+      state.historyInteractionActive = false;
+      state.restoring = false;
+      state.syncScheduled = false;
+    }
+    function unpatchChatScroll(chat) {
+      cleanupChatScroll(chat);
+      const state = chatStates.get(chat);
+      if (state) {
+        chat.removeEventListener("pointerenter", state.pointerEnterListener);
+        chat.removeEventListener("pointerleave", state.pointerLeaveListener);
+        chat.removeEventListener("focusin", state.focusInListener, true);
+        chat.removeEventListener("focusout", state.focusOutListener, true);
+        clearRetainedChatState(state);
+      }
+      chatObservers.get(chat)?.disconnect();
+      chatObservers.delete(chat);
+      chatStates.delete(chat);
+      patchedChats.delete(chat);
+      if (chat instanceof HTMLElement) {
+        delete chat.dataset.qolboxChatScrollPatched;
+      }
+    }
     function isUserReadingChat(chat, state) {
       return hasFocusedChatInput(chat) || state.offsetPx > 0 || chat.matches(":hover") || chat.classList.contains(CHAT_READING_CLASS);
     }
@@ -5448,6 +6104,10 @@
       if (!content || !state) {
         return;
       }
+      if (!options.isChatFeatureEnabled()) {
+        cleanupInGameChatScroll();
+        return;
+      }
       rememberChatMessages(content, state);
       const visible = isChatVisible(chat) || isChatShellVisible(chat) && state.historyInteractionActive && state.historyHtml.length > 0;
       if (visible) {
@@ -5466,6 +6126,7 @@
           clearRestoredChatDom(content, state);
           chat.classList.remove(CHAT_INTERACTIVE_CLASS);
           chat.classList.remove(CHAT_READING_CLASS);
+          syncContentWheelListener(chat, content, state);
           return;
         }
         chat.classList.add(CHAT_INTERACTIVE_CLASS);
@@ -5478,16 +6139,18 @@
           clearRestoredChatDom(content, state);
         }
         applyChatOffset(chat, content, state);
+        syncContentWheelListener(chat, content, state);
         if (!userReading && state.historyVisibleUntil > 0) {
           scheduleFadeSync(chat, state, state.historyVisibleUntil - now + 50);
         }
         return;
       }
-      clearRestoredChatDom(content, state);
+      clearRestoredChatDom(content, state, true);
       chat.classList.remove(CHAT_INTERACTIVE_CLASS);
       if (state.offsetPx <= 0) {
         chat.classList.remove(CHAT_READING_CLASS);
       }
+      syncContentWheelListener(chat, content, state);
     }
     function scheduleChatSync(chat) {
       const state = chatStates.get(chat);
@@ -5506,6 +6169,10 @@
       }, 0);
     }
     function schedulePatchInGameChatScroll(delayMs = 100) {
+      if (!options.isChatFeatureEnabled()) {
+        cleanupInGameChatScroll();
+        return;
+      }
       if (patchScheduled) {
         return;
       }
@@ -5523,56 +6190,56 @@
       if (chat instanceof HTMLElement) {
         chat.dataset.qolboxChatScrollPatched = "true";
       }
-      const state = {
+      let state;
+      const focusInListener = () => scheduleChatSync(chat);
+      const focusOutListener = () => scheduleChatSync(chat);
+      const pointerEnterListener = () => {
+        if (!options.isChatFeatureEnabled()) {
+          return;
+        }
+        if (chat instanceof HTMLElement && isChatVisible(chat)) {
+          chat.classList.add(CHAT_READING_CLASS);
+        }
+      };
+      const pointerLeaveListener = () => {
+        if (!options.isChatFeatureEnabled()) {
+          cleanupInGameChatScroll();
+          return;
+        }
+        if (state.offsetPx <= 0) {
+          chat.classList.remove(CHAT_READING_CLASS);
+        }
+        scheduleChatSync(chat);
+      };
+      state = {
         historyInteractionActive: false,
         historyHtml: [],
         historyNodes: [],
         historySignatures: [],
         historyVisibleUntil: 0,
         fadeSyncTimerId: 0,
+        focusInListener,
+        focusOutListener,
         offsetPx: 0,
+        pointerEnterListener,
+        pointerLeaveListener,
         restoredDomActive: false,
         restoredNodes: /* @__PURE__ */ new WeakSet(),
         restoring: false,
-        syncScheduled: false
+        syncScheduled: false,
+        wheelListener: null,
+        wheelListenerTarget: null
       };
       chatStates.set(chat, state);
-      chat.addEventListener("pointerenter", () => {
-        if (chat instanceof HTMLElement && isChatVisible(chat)) {
-          chat.classList.add(CHAT_READING_CLASS);
-        }
-      });
-      chat.addEventListener("pointerleave", () => {
-        if (state.offsetPx <= 0) {
-          chat.classList.remove(CHAT_READING_CLASS);
-        }
-        scheduleChatSync(chat);
-      });
-      chat.addEventListener(
-        "wheel",
-        (event) => {
-          const wheelEvent = event;
-          const target = event.target instanceof Element ? event.target : null;
-          if (target?.closest("input, textarea, select, button, .qolboxMenuOverlay")) {
-            return;
-          }
-          if (!(chat instanceof HTMLElement)) {
-            return;
-          }
-          const content2 = getChatContent(chat);
-          if (!content2) {
-            return;
-          }
-          state.offsetPx -= wheelEvent.deltaY;
-          applyChatOffset(chat, content2, state);
-          event.preventDefault();
-          event.stopPropagation();
-        },
-        { capture: true, passive: false }
-      );
-      chat.addEventListener("focusin", () => scheduleChatSync(chat), true);
-      chat.addEventListener("focusout", () => scheduleChatSync(chat), true);
+      chat.addEventListener("pointerenter", state.pointerEnterListener);
+      chat.addEventListener("pointerleave", state.pointerLeaveListener);
+      chat.addEventListener("focusin", state.focusInListener, true);
+      chat.addEventListener("focusout", state.focusOutListener, true);
       const chatObserver = new MutationObserver((records) => {
+        if (!options.isChatFeatureEnabled()) {
+          cleanupInGameChatScroll();
+          return;
+        }
         const content2 = getChatContent(chat);
         const currentState = chatStates.get(chat);
         if (content2 && currentState) {
@@ -5605,6 +6272,10 @@
     }
     function patchInGameChatScroll() {
       installKeyHooks();
+      if (!options.isChatFeatureEnabled()) {
+        cleanupInGameChatScroll();
+        return;
+      }
       if (!hasVisibleGameplayCanvas()) {
         return;
       }
@@ -5613,7 +6284,13 @@
         syncChat(chat);
       }
     }
+    function cleanupInGameChatScroll() {
+      for (const chat of Array.from(patchedChats)) {
+        unpatchChatScroll(chat);
+      }
+    }
     return {
+      cleanupInGameChatScroll,
       patchInGameChatScroll
     };
   }
@@ -6141,6 +6818,9 @@
   function giveHostToPlayer(session, playerId) {
     return emitLobbyCommand(session, [getCommandId("qolboxGiveHost", 44), playerId]);
   }
+  function banPlayer(session, playerId) {
+    return emitLobbyCommand(session, [getCommandId("CE", 32), { id: playerId, ban: 1 }]);
+  }
 
   // src/features/lobby-command-team-targets.ts
   function getBulkTeamTargets(team, session = getMultiplayerSession(), targetGroup = "all") {
@@ -6285,6 +6965,9 @@
       }
       let moved = 0;
       for (const { id } of players) {
+        if (isSamePlayerId(id, localPlayerId) && team !== TEAM_STATE_SPECTATE && isSessionMatchActive(session) && dependencies.isCurrentPlayerSpectating(session)) {
+          dependencies.noteLocallyInitiatedPlayTransition(session);
+        }
         if (requestPlayerTeamState(session, id, team, localPlayerId)) {
           moved += 1;
         }
@@ -6490,37 +7173,43 @@
   }
 
   // src/features/lobby-command-help.ts
-  var QOLBOX_COMMAND_HELP_LINES = [
-    "QOLBox commands:",
-    "/spec -- spectate yourself",
-    "/spec playername -- spectate a player",
-    "/spec all|playing|spectators -- spectate a group",
-    "/join -- join play yourself (non-team modes)",
-    "/join playername -- join a player (non-team modes)",
-    "/join all|playing|spectators -- join a group (non-team modes)",
-    "/red -- join red yourself (team modes)",
-    "/red playername -- move a player to red (team modes)",
-    "/red all|playing|spectators -- move a group to red (team modes)",
-    "/blue -- join blue yourself (team modes)",
-    "/blue playername -- move a player to blue (team modes)",
-    "/blue all|playing|spectators -- move a group to blue (team modes)",
-    "/switch -- swap red and blue teams",
-    "/lock -- lock team switching",
-    "/unlock -- unlock team switching",
-    "/host playername -- give host to a player",
-    "/start -- start the game",
-    "/end -- end the current game",
-    "/restart -- end and start a new game",
-    "/r -- same as /restart",
-    "/record -- record the current replay",
-    "/rec -- same as /record",
-    "/settings -- view normal gameplay settings",
-    "/settings all -- view normal and hidden gameplay settings",
-    "Native /kick and /ban accept exact or unique partial player names.",
-    'Tip: to target players named all, playing, or spectators, quote the name: /spec "all".'
-  ];
+  function getQolboxCommandHelpLines() {
+    return [
+      "QOLBox commands:",
+      "/spec -- spectate yourself",
+      "/spec playername -- spectate a player",
+      "/spec all|playing|spectators -- spectate a group",
+      "/join -- join play yourself (non-team modes)",
+      "/join playername -- join a player (non-team modes)",
+      "/join all|playing|spectators -- join a group (non-team modes)",
+      "/red -- join red yourself (team modes)",
+      "/red playername -- move a player to red (team modes)",
+      "/red all|playing|spectators -- move a group to red (team modes)",
+      "/blue -- join blue yourself (team modes)",
+      "/blue playername -- move a player to blue (team modes)",
+      "/blue all|playing|spectators -- move a group to blue (team modes)",
+      "/switch -- swap red and blue teams",
+      "/lock -- lock team switching",
+      "/unlock -- unlock team switching",
+      "/host playername -- give host to a player",
+      "/blacklist playername -- add an exact name to automatic host bans",
+      "/blacklist -- show blacklisted names",
+      "/blacklist remove playername -- remove a blacklisted name",
+      "/blacklist clear|on|off -- manage the blacklist",
+      "/start -- start the game",
+      "/end -- end the current game",
+      "/restart -- end and start a new game",
+      ...areAdvancedCommandAliasesEnabled() ? ["/r -- same as /restart"] : [],
+      "/record -- record the current replay",
+      ...areAdvancedCommandAliasesEnabled() ? ["/rec -- same as /record"] : [],
+      "/settings -- view normal gameplay settings",
+      "/settings all -- view normal and hidden gameplay settings",
+      "Native /kick and /ban accept exact or unique partial player names.",
+      'Tip: to target players named all, playing, or spectators, quote the name: /spec "all".'
+    ];
+  }
   function writeQolboxCommandHelp(session) {
-    for (const line of QOLBOX_COMMAND_HELP_LINES) {
+    for (const line of getQolboxCommandHelpLines()) {
       writeChatLine(session, line);
     }
   }
@@ -6757,7 +7446,7 @@
     }
     function handleQolboxSlashCommand(message) {
       const text = String(message || "").trim();
-      const match = text.match(/^\/(switch|lock|unlock|spec|red|blue|join|host|start|end|restart|r|settings)(?:\s+(.+))?$/i);
+      const match = text.match(/^\/(switch|lock|unlock|spec|red|blue|join|host|start|end|restart|r|settings|blacklist)(?:\s+(.+))?$/i);
       if (!match) {
         return false;
       }
@@ -6792,6 +7481,10 @@
       }
       if (commandName === "/host") {
         dependencies.actions.handleHostSlashCommand(argument);
+        return true;
+      }
+      if (commandName === "/blacklist") {
+        dependencies.handleBlacklistSlashCommand(argument);
         return true;
       }
       if (commandName === "/end") {
@@ -6841,6 +7534,308 @@
     };
   }
 
+  // src/hitbox/player-join-hooks.ts
+  var PLAYER_JOIN_HOOK_MARKER = "__qolboxPlayerJoinHookInstalled";
+  function installPlayerJoinHook(session, onPlayerJoined) {
+    if (!isNativeObject(session) || readNativeProperty(session, PLAYER_JOIN_HOOK_MARKER)) {
+      return false;
+    }
+    const nativePlayerJoined = readNativeProperty(session, "VW");
+    if (typeof nativePlayerJoined !== "function") {
+      return false;
+    }
+    const wrappedPlayerJoined = function wrappedQolboxPlayerJoined(...args) {
+      const result = Reflect.apply(nativePlayerJoined, this, args);
+      window.setTimeout(() => onPlayerJoined(this), 0);
+      return result;
+    };
+    setNativeReflectProperty(session, "VW", wrappedPlayerJoined);
+    setNativeReflectProperty(session, PLAYER_JOIN_HOOK_MARKER, true);
+    return true;
+  }
+
+  // src/settings/blacklist-storage.ts
+  var BLACKLIST_STORAGE_KEY = "vm.hitbox.qolboxBlacklist.v1";
+  var MAX_BLACKLIST_ENTRIES = 200;
+  function normalizeStoredName(name) {
+    return String(name || "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+  function sanitizeBlacklistNames(value) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const names = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const rawName of value) {
+      const name = String(rawName || "").replace(/\s+/g, " ").trim();
+      const normalizedName = normalizeStoredName(name);
+      if (!normalizedName || seen.has(normalizedName)) {
+        continue;
+      }
+      seen.add(normalizedName);
+      names.push(name);
+      if (names.length >= MAX_BLACKLIST_ENTRIES) {
+        break;
+      }
+    }
+    return names;
+  }
+  function loadBlacklistNames() {
+    try {
+      return sanitizeBlacklistNames(JSON.parse(localStorage.getItem(BLACKLIST_STORAGE_KEY) || "[]"));
+    } catch {
+      return [];
+    }
+  }
+  function saveBlacklistNames(names) {
+    const sanitizedNames = sanitizeBlacklistNames(names);
+    try {
+      localStorage.setItem(BLACKLIST_STORAGE_KEY, JSON.stringify(sanitizedNames));
+    } catch {
+    }
+    return sanitizedNames;
+  }
+
+  // src/features/lobby-blacklist.ts
+  function parseQuotedName(value) {
+    const trimmed = value.trim();
+    const match = trimmed.match(/^(["'])(.*)\1$/);
+    return {
+      quoted: Boolean(match),
+      value: (match ? match[2] : trimmed).replace(/\s+/g, " ").trim()
+    };
+  }
+  function findStoredName(names, query) {
+    const normalizedQuery = normalizePlayerName(query);
+    if (!normalizedQuery) {
+      return { matches: [], status: "missing" };
+    }
+    const tiers = [
+      names.filter((name) => normalizePlayerName(name) === normalizedQuery),
+      names.filter((name) => normalizePlayerName(name).startsWith(normalizedQuery)),
+      names.filter((name) => normalizePlayerName(name).includes(normalizedQuery))
+    ];
+    for (const matches of tiers) {
+      if (matches.length === 1) {
+        return { matches, status: "found" };
+      }
+      if (matches.length > 1) {
+        return { matches, status: "ambiguous" };
+      }
+    }
+    return { matches: [], status: "missing" };
+  }
+  function getUniqueCurrentPlayerNames() {
+    const names = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const { player } of getSessionPlayers()) {
+      const name = String(getPlayerName(player) || "").replace(/\s+/g, " ").trim();
+      const normalizedName = normalizePlayerName(name);
+      if (!normalizedName || seen.has(normalizedName)) {
+        continue;
+      }
+      seen.add(normalizedName);
+      names.push(name);
+    }
+    return names;
+  }
+  function findCurrentPlayerName(requestedName) {
+    const normalizedRequest = normalizePlayerName(requestedName);
+    if (!normalizedRequest) {
+      return { match: null, partialMatches: [] };
+    }
+    const names = getUniqueCurrentPlayerNames();
+    const exactMatch = names.find((name) => normalizePlayerName(name) === normalizedRequest) || null;
+    if (exactMatch) {
+      return { match: exactMatch, partialMatches: [] };
+    }
+    const partialMatches = names.filter((name) => normalizePlayerName(name).includes(normalizedRequest)).slice(0, 4);
+    return { match: null, partialMatches };
+  }
+  function getQuotedCommandExample(name) {
+    return name.includes('"') ? `/blacklist '${name}'` : `/blacklist "${name}"`;
+  }
+  function getPartialCurrentPlayerMessage(requestedName, matches) {
+    const matchText = matches.join(", ");
+    return `Blacklist uses exact names. '${requestedName}' partially matches ${matchText}. Type the full player name or use ${getQuotedCommandExample(requestedName)} to add exactly '${requestedName}'.`;
+  }
+  function createLobbyBlacklistController(options) {
+    let blacklistNames = loadBlacklistNames();
+    let hookTarget = null;
+    let attemptedSession = null;
+    let attemptedPlayers = /* @__PURE__ */ new Set();
+    function saveNames(nextNames) {
+      blacklistNames = saveBlacklistNames(nextNames);
+    }
+    function getBlacklistNameMap() {
+      return new Map(blacklistNames.map((name) => [normalizePlayerName(name), name]));
+    }
+    function resetAttemptsForSession(session) {
+      if (attemptedSession === session) {
+        return;
+      }
+      attemptedSession = session;
+      attemptedPlayers = /* @__PURE__ */ new Set();
+    }
+    function enforceBlacklist(session = getMultiplayerSession()) {
+      if (!options.areLobbyCommandsEnabled() || !options.isEnforcementEnabled() || !hasLobbyPlayerState(session) || !isHostSession(session)) {
+        return 0;
+      }
+      resetAttemptsForSession(session);
+      const namesByNormalizedName = getBlacklistNameMap();
+      if (!namesByNormalizedName.size) {
+        return 0;
+      }
+      const localPlayerId = getLocalPlayerId(session);
+      let banned = 0;
+      for (const { id, player } of getSessionPlayers(session)) {
+        if (isSamePlayerId(id, localPlayerId)) {
+          continue;
+        }
+        const playerName = String(getPlayerName(player) || "").trim();
+        const normalizedName = normalizePlayerName(playerName);
+        const attemptKey = `${String(id)}\0${normalizedName}`;
+        if (!namesByNormalizedName.has(normalizedName) || attemptedPlayers.has(attemptKey)) {
+          continue;
+        }
+        attemptedPlayers.add(attemptKey);
+        if (banPlayer(session, id)) {
+          banned += 1;
+          options.showStatus(`Automatically banned blacklisted player ${playerName || "Player"}.`, session);
+        } else {
+          attemptedPlayers.delete(attemptKey);
+          options.showStatus(`Could not automatically ban blacklisted player ${playerName || "Player"}.`, session);
+        }
+      }
+      return banned;
+    }
+    function installBlacklistHook(session = getMultiplayerSession()) {
+      if (!session || session === hookTarget) {
+        return false;
+      }
+      if (installPlayerJoinHook(session, (joinedSession) => enforceBlacklist(joinedSession))) {
+        hookTarget = session;
+        return true;
+      }
+      return false;
+    }
+    function patchLobbyBlacklist() {
+      const session = getMultiplayerSession();
+      installBlacklistHook(session);
+      enforceBlacklist(session);
+    }
+    function showBlacklist() {
+      if (!blacklistNames.length) {
+        options.showStatus("The blacklist is empty. Usage: /blacklist playername");
+        return true;
+      }
+      options.showStatus(`Blacklisted names (${blacklistNames.length}):`);
+      blacklistNames.forEach((name) => options.showStatus(`- ${name}`));
+      return true;
+    }
+    function addBlacklistName(rawName) {
+      const parsedName = parseQuotedName(rawName);
+      const requestedName = parsedName.value;
+      if (!requestedName) {
+        options.showStatus("Usage: /blacklist playername");
+        return false;
+      }
+      const currentPlayerName = parsedName.quoted ? { match: null, partialMatches: [] } : findCurrentPlayerName(requestedName);
+      if (currentPlayerName.partialMatches.length) {
+        options.showStatus(getPartialCurrentPlayerMessage(requestedName, currentPlayerName.partialMatches));
+        return false;
+      }
+      const exactName = currentPlayerName.match || requestedName;
+      if (blacklistNames.some((name) => normalizePlayerName(name) === normalizePlayerName(exactName))) {
+        options.showStatus(`${exactName} is already blacklisted.`);
+        return true;
+      }
+      if (blacklistNames.length >= MAX_BLACKLIST_ENTRIES) {
+        options.showStatus(`The blacklist is full (${MAX_BLACKLIST_ENTRIES} names). Remove a name before adding another.`);
+        return false;
+      }
+      saveNames([...blacklistNames, exactName]);
+      options.showStatus(`Added ${exactName} to the blacklist.`);
+      if (!options.isEnforcementEnabled()) {
+        options.showStatus("Automatic blacklist enforcement is currently off.");
+      } else if (!isHostSession()) {
+        options.showStatus("Automatic bans will apply when you are host.");
+      }
+      patchLobbyBlacklist();
+      return true;
+    }
+    function removeBlacklistName(rawName) {
+      const requestedName = parseQuotedName(rawName).value;
+      if (!requestedName) {
+        options.showStatus("Usage: /blacklist remove playername");
+        return false;
+      }
+      const result = findStoredName(blacklistNames, requestedName);
+      if (result.status === "missing") {
+        options.showStatus(`Couldn't find '${requestedName}' in the blacklist.`);
+        return false;
+      }
+      if (result.status === "ambiguous") {
+        options.showStatus(`Blacklist name '${requestedName}' is ambiguous: ${result.matches.slice(0, 4).join(", ")}.`);
+        return false;
+      }
+      const removedName = result.matches[0];
+      saveNames(blacklistNames.filter((name) => normalizePlayerName(name) !== normalizePlayerName(removedName)));
+      options.showStatus(`Removed ${removedName} from the blacklist.`);
+      return true;
+    }
+    function clearBlacklist() {
+      const removedCount = blacklistNames.length;
+      saveNames([]);
+      options.showStatus(
+        removedCount ? `Cleared ${removedCount} ${removedCount === 1 ? "name" : "names"} from the blacklist.` : "The blacklist is already empty."
+      );
+      return true;
+    }
+    function setBlacklistEnforcement(enabled) {
+      if (options.isEnforcementEnabled() === enabled) {
+        options.showStatus(`Automatic blacklist enforcement is already ${enabled ? "on" : "off"}.`);
+        return true;
+      }
+      options.setEnforcementEnabled(enabled);
+      options.showStatus(`Automatic blacklist enforcement is now ${enabled ? "on" : "off"}.`);
+      if (enabled) {
+        patchLobbyBlacklist();
+      }
+      return true;
+    }
+    function handleBlacklistSlashCommand(argument) {
+      const trimmed = argument.trim();
+      if (!trimmed) {
+        return showBlacklist();
+      }
+      const parsedName = parseQuotedName(trimmed);
+      if (parsedName.quoted) {
+        return addBlacklistName(trimmed);
+      }
+      const commandMatch = trimmed.match(/^(clear|on|off)$/i);
+      if (commandMatch?.[1].toLowerCase() === "clear") {
+        return clearBlacklist();
+      }
+      if (commandMatch?.[1].toLowerCase() === "on") {
+        return setBlacklistEnforcement(true);
+      }
+      if (commandMatch?.[1].toLowerCase() === "off") {
+        return setBlacklistEnforcement(false);
+      }
+      const removeMatch = trimmed.match(/^(?:remove|delete|rm)(?:\s+(.+))?$/i);
+      if (removeMatch) {
+        return removeBlacklistName(removeMatch[1] || "");
+      }
+      return addBlacklistName(trimmed);
+    }
+    return {
+      enforceBlacklist,
+      handleBlacklistSlashCommand,
+      patchLobbyBlacklist
+    };
+  }
+
   // src/features/player-popup-dismissal.ts
   var dismissalListenersInstalled = false;
   function getRightClickMenus() {
@@ -6862,13 +7857,6 @@
     }
     removePlayerPopups();
   }
-  function handlePlayerPopupEscape(event) {
-    if (event.key !== "Escape" || !removePlayerPopups()) {
-      return;
-    }
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  }
   function installPlayerPopupDismissal() {
     if (dismissalListenersInstalled) {
       return;
@@ -6876,7 +7864,6 @@
     dismissalListenersInstalled = true;
     document.addEventListener("pointerdown", handlePointerOutsidePlayerPopup, true);
     document.addEventListener("mousedown", handlePointerOutsidePlayerPopup, true);
-    document.addEventListener("keydown", handlePlayerPopupEscape, true);
   }
 
   // src/features/switch-teams-button.ts
@@ -6979,9 +7966,16 @@
       noteLocallyInitiatedPlayTransition: options.noteLocallyInitiatedPlayTransition,
       showStatus: showQolboxChatStatus
     });
+    const blacklist = createLobbyBlacklistController({
+      areLobbyCommandsEnabled: options.areLobbyCommandsEnabled,
+      isEnforcementEnabled: options.isBlacklistEnforcementEnabled,
+      setEnforcementEnabled: options.setBlacklistEnforcementEnabled,
+      showStatus: showQolboxChatStatus
+    });
     const dispatcher = createLobbyCommandDispatcher({
       actions: lobbyCommandActions,
       areGameStartAlertsEnabled: options.areGameStartAlertsEnabled,
+      handleBlacklistSlashCommand: blacklist.handleBlacklistSlashCommand,
       installStartAlertHooks: options.installStartAlertHooks,
       noteLocallyInitiatedPlayTransition: options.noteLocallyInitiatedPlayTransition,
       showStatus: showQolboxChatStatus
@@ -7026,6 +8020,7 @@
     return {
       ...lobbyCommandActions,
       ...dispatcher,
+      ...blacklist,
       ...switchTeamsButton,
       installPlayerPopupDismissal,
       patchSlashCommands,
@@ -7275,6 +8270,9 @@
   function getTouchIdentifier(touch) {
     return readObjectProperty(touch, "identifier");
   }
+  function getPointerIdentifier(event) {
+    return readObjectProperty(event, "pointerId");
+  }
   function isPrimaryPointerStart(event) {
     const button = readObjectProperty(event, "button");
     return button === void 0 || button === 0;
@@ -7293,12 +8291,19 @@
   }
 
   // src/features/mobile-grab-press.ts
+  var UNKNOWN_POINTER_ID = /* @__PURE__ */ Symbol("qolbox-unknown-pointer");
   function createMobileGrabPressController(options) {
     let activeTouchId = null;
+    let activePointerId = null;
     let releaseHooksInstalled = false;
     function resetMobileGrabPress() {
       activeTouchId = null;
+      activePointerId = null;
       options.setPressed(false);
+    }
+    function getPointerKey(event) {
+      const pointerId = getPointerIdentifier(event);
+      return pointerId === void 0 || pointerId === null ? UNKNOWN_POINTER_ID : pointerId;
     }
     function handleMobileGrabTouchStart(event) {
       if (!options.getButton() || !options.shouldShow()) {
@@ -7332,13 +8337,18 @@
         return;
       }
       stopMobileGrabEvent(event);
+      activePointerId = getPointerKey(event);
       options.setPressed(true);
     }
     function handleMobileGrabPointerEnd(event) {
-      if (!options.isPressed()) {
+      if (activePointerId === null) {
+        return;
+      }
+      if (getPointerKey(event) !== activePointerId) {
         return;
       }
       stopMobileGrabEvent(event);
+      activePointerId = null;
       options.setPressed(false);
     }
     function installMobileGrabReleaseHooks() {
@@ -7422,7 +8432,7 @@
       return Boolean(dependencies.isEnabled() && isMobileGameMode() && areNativeMobileAbilityButtonsVisible());
     }
     function syncMobileGrabButton() {
-      if (!isMobileGameMode()) {
+      if (!dependencies.isEnabled() || !isMobileGameMode()) {
         removeMobileGrabButton();
         return false;
       }
@@ -7456,7 +8466,7 @@
     }
     function patchMobileGrabButton() {
       if (!dependencies.isEnabled()) {
-        hideMobileGrabButton();
+        removeMobileGrabButton();
         return false;
       }
       installMobileGrabControlHooks();
@@ -7469,6 +8479,7 @@
       isMobileQolboxMenuContext,
       layoutMobileGrabButton,
       patchMobileGrabButton,
+      removeMobileGrabButton,
       setMobileGrabPressed,
       shouldShowMobileGrabButton,
       syncMobileGrabButton
@@ -7542,6 +8553,145 @@
     };
   }
 
+  // src/features/popup-keyboard-controls.ts
+  var NATIVE_POPUP_SELECTOR = [
+    ".mouseBlockContainer > :not(.behindBlocker)",
+    ".createWindowContainer .createWindow",
+    ".passwordWindowContainer .passwordWindow",
+    ".connectingWindowContainer .connectingWindow",
+    ".autoLoginWindowContainer .autoLoginWindow",
+    ".mapListContainer .enterNameWindow",
+    ".oneButtonWindow",
+    ".twoButtonWindow",
+    ".updateNews",
+    ".settingsWindow",
+    ".recordsWindow",
+    ".cosmeticWindow",
+    ".rightClickMenu"
+  ].join(", ");
+  function isVisibleElement(element) {
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0;
+  }
+  function getVisibleNativePopup() {
+    const popups = Array.from(document.querySelectorAll(NATIVE_POPUP_SELECTOR)).filter(isVisibleElement).filter((popup) => !popup.closest(".qolboxMenuOverlay"));
+    return popups[popups.length - 1] || null;
+  }
+  function isDisabledAction(element) {
+    return element.classList.contains("disabled") || element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true" || window.getComputedStyle(element).pointerEvents === "none";
+  }
+  function findEnabledAction(popup, selectors) {
+    for (const selector of selectors) {
+      const action = popup.querySelector(selector);
+      if (action && isVisibleElement(action) && !isDisabledAction(action)) {
+        return action;
+      }
+    }
+    return null;
+  }
+  function isNativeKeyBindingActive(popup) {
+    return popup.matches(".settingsWindow") && Array.from(popup.querySelectorAll(".clickable")).some((element) => element.textContent?.trim() === "...");
+  }
+  function isMultilineEditor(target) {
+    return target instanceof HTMLTextAreaElement || target instanceof HTMLElement && target.isContentEditable;
+  }
+  function dismissRightClickMenu(popup) {
+    if (!popup.matches(".rightClickMenu")) {
+      return false;
+    }
+    popup.remove();
+    return true;
+  }
+  function getEscapeAction(popup) {
+    return findEnabledAction(popup, [
+      ".crossButton",
+      ".cancelButton",
+      ".backButton",
+      ".oneButtonWindow .button",
+      ".button"
+    ]);
+  }
+  function getEnterAction(popup) {
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && popup.contains(activeElement) && activeElement.matches('button, [role="button"], .button, .bottomButton, .item') && !isDisabledAction(activeElement)) {
+      return activeElement;
+    }
+    const primaryAction = findEnabledAction(popup, [
+      ".okButton",
+      ".joinButton",
+      ".createButton",
+      ".saveButton",
+      ".playButton",
+      ".oneButtonWindow .button",
+      ".button:not(.cancelButton):not(.leftButton):not(.rightButton)"
+    ]);
+    if (primaryAction) {
+      return primaryAction;
+    }
+    return popup.matches(".updateNews") ? findEnabledAction(popup, [".crossButton"]) : null;
+  }
+  function getArrowAction(popup, direction) {
+    const hasPageNavigation = popup.matches(".updateNews") || Boolean(popup.querySelector(".dateLabel"));
+    if (!hasPageNavigation) {
+      return null;
+    }
+    return findEnabledAction(popup, [direction === "left" ? ".leftButton" : ".rightButton"]);
+  }
+  function createPopupKeyboardController() {
+    let hooksInstalled = false;
+    function handlePopupKeyboard(event) {
+      if (event.defaultPrevented || event.repeat || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || document.querySelector(".qolboxMenuOverlay")) {
+        return;
+      }
+      const popup = getVisibleNativePopup();
+      if (!popup || isNativeKeyBindingActive(popup)) {
+        return;
+      }
+      let handled = false;
+      if (isEscapeKey(event)) {
+        handled = dismissRightClickMenu(popup);
+        const action = handled ? null : getEscapeAction(popup);
+        if (action) {
+          action.click();
+          handled = true;
+        }
+      } else if (isEnterKey(event) && !isMultilineEditor(event.target)) {
+        const action = getEnterAction(popup);
+        if (action) {
+          action.click();
+          handled = true;
+        }
+      } else if (isArrowLeftKey(event) || isArrowRightKey(event)) {
+        const action = getArrowAction(popup, isArrowLeftKey(event) ? "left" : "right");
+        if (action) {
+          action.click();
+          handled = true;
+        }
+      }
+      if (!handled) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    }
+    function installPopupKeyboardHooks() {
+      if (hooksInstalled) {
+        return;
+      }
+      hooksInstalled = true;
+      window.addEventListener("keydown", handlePopupKeyboard, true);
+    }
+    return {
+      handlePopupKeyboard,
+      installPopupKeyboardHooks
+    };
+  }
+
   // src/settings/onboarding-storage.ts
   var ONBOARDING_COMPLETE_KEY = "vm.hitbox.qolboxOnboardingComplete";
   function loadOnboardingComplete() {
@@ -7559,7 +8709,7 @@
   }
 
   // src/config/qolbox-version.ts
-  var QOLBOX_VERSION = "2.0.1";
+  var QOLBOX_VERSION = "2.1.0";
   var QOLBOX_VERSION_LABEL = `v${QOLBOX_VERSION}`;
   var QOLBOX_GREASYFORK_URL = "https://greasyfork.org/en/scripts/568667-qolbox";
   var QOLBOX_GITHUB_URL = "https://github.com/AggressiveCombo/QOLBox";
@@ -7570,13 +8720,9 @@
   var RELEASE_HISTORY_CACHE_KEY = "vm.hitbox.qolboxReleaseHistory.v1";
   var RELEASE_HISTORY_CACHE_TTL_MS = 12 * 60 * 60 * 1e3;
   var RELEASE_HISTORY_FETCH_TIMEOUT_MS = 7e3;
-  var IS_DEV_VERSION = /-dev$/i.test(QOLBOX_VERSION);
-  var LOCAL_CURRENT_RELEASE_FALLBACK_NOTES = IS_DEV_VERSION ? [
-    "This development build contains the current local QOLBox changes.",
-    "Public release notes are loaded from GitHub releases and GreasyFork version history when available."
-  ] : [
-    "Adds grouped lobby tools, expanded slash commands, mobile Grab, setup controls, and a compact update notice.",
-    "Improves fullscreen, reserve, audio, chat, spectator, and away-tab behavior for this release."
+  var LOCAL_CURRENT_RELEASE_FALLBACK_NOTES = [
+    "Public release notes could not be loaded for this version.",
+    "Check GitHub releases or GreasyFork version history for the full changelog when available."
   ];
   var LOCAL_CURRENT_RELEASE_FALLBACK = [
     {
@@ -7894,16 +9040,46 @@
   }
   function getReleaseHistorySourceLabel(notes) {
     const sources = new Set(notes.map((note) => note.source));
-    if (sources.has("github") && sources.has("greasyfork")) {
-      return "GitHub releases and GreasyFork version history";
+    const hasFallback = sources.has("local-fallback");
+    const hasGitHub = sources.has("github");
+    const hasGreasyFork = sources.has("greasyfork");
+    let remoteLabel = "";
+    if (hasGitHub && hasGreasyFork) {
+      remoteLabel = "GitHub releases and GreasyFork version history";
+    } else if (hasGitHub) {
+      remoteLabel = "GitHub releases";
+    } else if (hasGreasyFork) {
+      remoteLabel = "GreasyFork version history";
     }
-    if (sources.has("github")) {
-      return "GitHub releases";
+    if (hasFallback && remoteLabel) {
+      return `bundled fallback notes and ${remoteLabel}`;
     }
-    if (sources.has("greasyfork")) {
-      return "GreasyFork version history";
+    if (hasFallback) {
+      return "bundled fallback notes";
     }
-    return "bundled fallback notes";
+    return remoteLabel || "release history";
+  }
+  function getLoadedReleaseHistoryMessage(notes) {
+    const hasFallback = notes.some((note) => note.source === "local-fallback");
+    const hasRemote = notes.some((note) => note.source === "github" || note.source === "greasyfork");
+    if (hasFallback && hasRemote) {
+      return "Loaded public version history where available. Showing bundled fallback messages for missing entries.";
+    }
+    if (hasFallback) {
+      return "No public notes matched this update. Showing a bundled fallback message.";
+    }
+    return "Loaded public version history.";
+  }
+  function getCachedReleaseHistoryMessage(notes) {
+    const hasFallback = notes.some((note) => note.source === "local-fallback");
+    const hasRemote = notes.some((note) => note.source === "github" || note.source === "greasyfork");
+    if (hasFallback && hasRemote) {
+      return "Loaded cached public version history where available. Showing bundled fallback messages for missing entries.";
+    }
+    if (hasFallback) {
+      return "No cached public notes matched this update. Showing a bundled fallback message.";
+    }
+    return "Loaded cached public version history.";
   }
   function createInitialReleaseHistoryState(previousVersion, currentVersion = QOLBOX_VERSION) {
     const cachedEntries = getCachedReleaseHistoryEntries();
@@ -7913,7 +9089,7 @@
         status: "ready",
         notes: notes2,
         sourceLabel: getReleaseHistorySourceLabel(notes2),
-        message: "Loaded cached public version history."
+        message: getCachedReleaseHistoryMessage(notes2)
       };
     }
     const notes = getReleaseNotesBetween(previousVersion, currentVersion);
@@ -7932,7 +9108,7 @@
         status: "ready",
         notes,
         sourceLabel: getReleaseHistorySourceLabel(notes),
-        message: "Loaded public version history."
+        message: getLoadedReleaseHistoryMessage(notes)
       };
     } catch {
       const cachedEntries = getCachedReleaseHistoryEntries(true);
@@ -7942,7 +9118,7 @@
           status: "fallback",
           notes: notes2,
           sourceLabel: getReleaseHistorySourceLabel(notes2),
-          message: "Could not refresh public version history. Showing cached history."
+          message: `Could not refresh public version history. ${getCachedReleaseHistoryMessage(notes2)}`
         };
       }
       const notes = getReleaseNotesBetween(previousVersion, currentVersion);
@@ -7950,7 +9126,7 @@
         status: "fallback",
         notes,
         sourceLabel: getReleaseHistorySourceLabel(notes),
-        message: "Could not load public version history. Showing minimal bundled notes."
+        message: "Could not load public version history. Showing a bundled fallback message."
       };
     }
   }
@@ -8030,7 +9206,7 @@
   }
   function focusFirstQolboxMenuControl(panel) {
     window.setTimeout(() => {
-      const focusTarget = panel.querySelector(".qolboxMenuButton.primary, .qolboxMenuToggle.active, .qolboxMenuButton");
+      const focusTarget = panel.querySelector(".qolboxMenuButton.primary, .qolboxMenuChoice.primary") || panel.querySelector(".qolboxMenuToggle.active") || panel.querySelector(".qolboxMenuButton");
       focusElementWithoutScroll(focusTarget);
     }, 0);
   }
@@ -8074,6 +9250,7 @@
     FEATURE_RESERVE,
     FEATURE_CHAT,
     FEATURE_GAME_START_ALERT,
+    FEATURE_EDITOR_MAP_TRANSFER,
     FEATURE_MOBILE_GRAB
   ];
   var ADVANCED_TIMING_KEYS = [
@@ -8185,7 +9362,7 @@
       return value === true || value === false || value === "true" || value === "false" ? null : "Choose Enabled or Off.";
     }
     function getErrorPage(key) {
-      if (key === ADVANCED_COMMAND_ALIASES) {
+      if (key === ADVANCED_COMMAND_ALIASES || key === ADVANCED_BLACKLIST_ENFORCEMENT) {
         return "commands";
       }
       return "advanced";
@@ -8237,7 +9414,7 @@
       switch (settingsPage) {
         case "commands":
           resetFeatureDraft([FEATURE_LOBBY_COMMANDS]);
-          resetAdvancedDraft([ADVANCED_COMMAND_ALIASES]);
+          resetAdvancedDraft([ADVANCED_COMMAND_ALIASES, ADVANCED_BLACKLIST_ENFORCEMENT]);
           break;
         case "audio":
           resetFeatureDraft([FEATURE_AUDIO]);
@@ -8372,8 +9549,30 @@
       if (mode !== "closed" && isEscapeKey(event)) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (mode === "settings") {
-          closeQolboxMenu();
+        closeQolboxMenu();
+        return;
+      }
+      if (mode === "update" && (isArrowLeftKey(event) || isArrowRightKey(event))) {
+        const action = isArrowLeftKey(event) ? "update-older" : "update-newer";
+        const actionElement = document.querySelector(
+          `#${options.menuId} [data-qolbox-action="${action}"]:not([disabled])`
+        );
+        if (actionElement) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          actionElement.click();
+        }
+        return;
+      }
+      if (mode !== "closed" && isEnterKey(event)) {
+        const activeElement = document.activeElement;
+        const actionElement = activeElement instanceof HTMLElement && activeElement.closest(`#${options.menuId}`) && activeElement.matches("[data-qolbox-action]:not([disabled])") ? activeElement : document.querySelector(
+          `#${options.menuId} .qolboxMenuButton.primary:not([disabled]), #${options.menuId} .qolboxMenuChoice.primary:not([disabled])`
+        );
+        if (actionElement) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          actionElement.click();
         }
         return;
       }
@@ -8444,6 +9643,7 @@
     FEATURE_RESERVE,
     FEATURE_CHAT,
     FEATURE_GAME_START_ALERT,
+    FEATURE_EDITOR_MAP_TRANSFER,
     FEATURE_MOBILE_GRAB
   ];
   var ADVANCED_TIMING_KEYS2 = [
@@ -8480,7 +9680,7 @@
         {
           type: "intro",
           title: "Welcome to QOLBox",
-          text: `${options.versionLabel} adds fullscreen layout, full-lobby reserves, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, and setup controls. Choose Express for the recommended setup or Custom to decide feature by feature.`
+          text: `${options.versionLabel} adds fullscreen layout, full-lobby reserves, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, map import/export, and setup controls. Choose Express for the recommended setup or Custom to decide feature by feature.`
         },
         ...featureSteps,
         {
@@ -8619,8 +9819,9 @@
     function getAdvancedRowMarkup(key, draft, errors) {
       const definition = getAdvancedSettingDefinition2(key);
       const value = draft.advanced[definition.key];
+      const rowKindClass = definition.kind === "boolean" ? " boolean" : " numeric";
       return `
-      <div class="qolboxMenuFeatureRow compact">
+      <div class="qolboxMenuFeatureRow compact${rowKindClass}">
         <div>
           <div class="qolboxMenuFeatureName">${escapeMenuText(definition.title)}</div>
           <div class="qolboxMenuFeatureSummary">${escapeMenuText(definition.description)} Current draft: ${escapeMenuText(getAdvancedSettingValueText(definition, value))}</div>
@@ -8646,8 +9847,9 @@
       <div class="qolboxMenuSettingsList">
         ${getFeatureRowMarkup(FEATURE_LOBBY_COMMANDS, draft)}
         ${getAdvancedRowMarkup(ADVANCED_COMMAND_ALIASES, draft, errors)}
+        ${getAdvancedRowMarkup(ADVANCED_BLACKLIST_ENFORCEMENT, draft, errors)}
       </div>
-      <div class="qolboxMenuInfoBox">Group targets: all, playing, spectators. Quote those words to target a player with that exact name. Native /kick and /ban accept exact or unique partial player names.</div>
+      <div class="qolboxMenuInfoBox">Group targets: all, playing, spectators. Quote those words to target a player with that exact name. Native /kick and /ban accept exact or unique partial player names. Use /blacklist to manage exact-name automatic host bans.</div>
       <div class="qolboxMenuActions slim">
         <button class="qolboxMenuButton" data-qolbox-action="reset-page">Reset Commands</button>
       </div>
@@ -8693,7 +9895,7 @@
       return `
       <div class="qolboxMenuInfoBox">
         <div class="qolboxMenuFeatureName">QOLBox ${escapeMenuText(options.versionLabel)}</div>
-        <div class="qolboxMenuFeatureSummary">Fullscreen layout, reserve spots, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, and setup options for hitbox.io.</div>
+        <div class="qolboxMenuFeatureSummary">Fullscreen layout, reserve spots, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, map import/export, and setup options for hitbox.io.</div>
       </div>
       ${getCreditsMarkup()}
     `;
@@ -8752,6 +9954,20 @@
       return Number.isFinite(timestamp) ? ` - ${new Date(timestamp).toLocaleDateString()}` : "";
     }
     function getUpdateNoticeMarkup(notice, releaseHistory, pageIndex) {
+      if (releaseHistory.status === "loading") {
+        return `
+        <div class="qolboxMenuBody">
+          <div class="qolboxMenuHeaderLine">
+            <h1 class="qolboxMenuTitle">QOLBox Updated</h1>
+          </div>
+          <p class="qolboxMenuText">Updated from ${escapeMenuText(notice.previousVersion)} to ${escapeMenuText(notice.currentVersion)}.</p>
+          <div class="qolboxMenuLoading" role="status" aria-live="polite">
+            <span class="qolboxMenuSpinner" aria-hidden="true"></span>
+            <span>Loading release notes from GitHub and GreasyFork...</span>
+          </div>
+        </div>
+      `;
+      }
       const releaseNotes = releaseHistory.notes;
       const safePageIndex = Math.max(0, Math.min(pageIndex, Math.max(0, releaseNotes.length - 1)));
       const release = releaseNotes[safePageIndex] || null;
@@ -9219,22 +10435,27 @@
       }
 
       .qolboxMenuButton,
+      .qolboxMenuTab,
       .qolboxMenuToggle {
+        align-items: center;
         appearance: none;
         border: 0;
         box-sizing: border-box;
         cursor: pointer;
+        display: inline-flex;
         font-family: inherit;
         font-size: 12px;
         font-weight: 700;
+        justify-content: center;
         letter-spacing: 0;
         line-height: 14px;
-        min-height: 28px;
+        min-height: 30px;
       }
 
       .qolboxMenuToggle {
         background: transparent;
         color: #cfd3da;
+        padding: 0 8px;
       }
 
       .qolboxMenuToggle + .qolboxMenuToggle {
@@ -9262,6 +10483,7 @@
         border: 1px solid rgb(92, 98, 108);
         border-radius: 3px;
         color: #f4f4f4;
+        min-width: 72px;
         padding: 0 12px;
       }
 
@@ -9287,18 +10509,13 @@
       }
 
       .qolboxMenuTab {
-        appearance: none;
         background: rgb(31, 34, 39);
         border: 1px solid rgb(72, 78, 89);
         border-radius: 3px;
         color: #cfd3da;
-        cursor: pointer;
-        font-family: inherit;
         font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0;
         line-height: 13px;
-        min-height: 26px;
+        padding: 0 6px;
       }
 
       .qolboxMenuTab.active {
@@ -9364,6 +10581,10 @@
         grid-template-columns: minmax(0, 1fr) 150px;
       }
 
+      .qolboxMenuFeatureRow.compact.boolean {
+        grid-template-columns: minmax(0, 1fr) 108px;
+      }
+
       .qolboxMenuFeatureName {
         color: #ffffff;
         font-size: 12px;
@@ -9392,8 +10613,9 @@
         color: #f4f4f4;
         font-family: inherit;
         font-size: 12px;
+        height: 30px;
         line-height: 16px;
-        min-height: 26px;
+        min-height: 30px;
         min-width: 0;
         padding: 0 6px;
         width: 100%;
@@ -9430,6 +10652,37 @@
         line-height: 15px;
         margin: 5px 0 0;
         padding-left: 16px;
+      }
+
+      .qolboxMenuLoading {
+        align-items: center;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 3px;
+        color: #d7dbe1;
+        display: flex;
+        font-size: 11px;
+        gap: 9px;
+        line-height: 15px;
+        min-height: 54px;
+        padding: 8px;
+      }
+
+      .qolboxMenuSpinner {
+        animation: qolboxMenuSpin 0.8s linear infinite;
+        border: 2px solid rgba(255, 255, 255, 0.28);
+        border-radius: 50%;
+        border-top-color: #f5c542;
+        box-sizing: border-box;
+        flex: 0 0 auto;
+        height: 18px;
+        width: 18px;
+      }
+
+      @keyframes qolboxMenuSpin {
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .qolboxMenuAboutLinks {
@@ -9490,8 +10743,13 @@
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .qolboxMenuOverlay {
+        .qolboxMenuOverlay,
+        .qolboxMenuSpinner {
           transition: none !important;
+        }
+
+        .qolboxMenuSpinner {
+          animation-duration: 1.6s;
         }
       }
     `;
@@ -9569,6 +10827,43 @@
     `;
   }
 
+  // src/features/global-style-editor-map.ts
+  function getEditorMapGlobalStyleText() {
+    return `
+      .qolboxEditorMapStatus {
+        background: rgba(22, 24, 28, 0.96);
+        border: 1px solid rgb(92, 98, 108);
+        border-radius: 3px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.42);
+        box-sizing: border-box;
+        color: #f4f4f4;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        left: 50%;
+        line-height: 15px;
+        max-width: calc(100vw - 20px);
+        opacity: 0;
+        padding: 6px 10px;
+        pointer-events: none;
+        position: fixed;
+        top: 36px;
+        transform: translateX(-50%);
+        transition: opacity 120ms ease;
+        z-index: 2147483646;
+      }
+
+      .qolboxEditorMapStatus.visible {
+        opacity: 1;
+      }
+
+      .qolboxEditorMapStatus.error {
+        border-color: rgba(240, 95, 87, 0.8);
+        color: #ffaaa4;
+      }
+    `;
+  }
+
   // src/features/global-style.ts
   function getGlobalStyleText(options) {
     return `
@@ -9594,6 +10889,8 @@
       ${getQolboxMenuGlobalStyleText()}
 
       ${getMobileGrabGlobalStyleText(options)}
+
+      ${getEditorMapGlobalStyleText()}
     `;
   }
   function createGlobalStyleController(options) {
@@ -11006,17 +12303,58 @@ ${lockState}`;
     return normalizeScoreName(nameElement ? nameElement.textContent : row && row.textContent);
   }
   function createScoreRowColorController(options) {
+    const scoreRowColorsByKey = /* @__PURE__ */ new Map();
     function isFallbackScoreRowColor(color) {
       return colorsMatch(color, options.fallbackRgb);
     }
-    function getPlayerScoreColor(player) {
+    function getPlayerDirectScoreColor(player) {
       for (const value of getPlayerColorCandidates(player)) {
         const parsed = parsePlayerRgbColor(value);
         if (parsed) {
           return parsed;
         }
       }
+      return null;
+    }
+    function getScoreRowColorKeys(row, player) {
+      const keys = /* @__PURE__ */ new Set();
+      const rowName = getScoreRowName(row);
+      const playerName = normalizeScoreName(getPlayerDisplayName(player));
+      const teamState = options.getPlayerTeamState(player);
+      if (rowName) {
+        keys.add(`row:${rowName}`);
+      }
+      if (playerName) {
+        keys.add(`player:${playerName}`);
+      }
+      if (Number.isFinite(teamState)) {
+        keys.add(`team:${teamState}`);
+      }
+      return Array.from(keys);
+    }
+    function rememberScoreRowColor(keys, color) {
+      if (!color || isFallbackScoreRowColor(color)) {
+        return;
+      }
+      for (const key of keys) {
+        scoreRowColorsByKey.set(key, { ...color, alpha: 1 });
+      }
+    }
+    function getRememberedScoreRowColor(keys) {
+      for (const key of keys) {
+        const color = scoreRowColorsByKey.get(key);
+        if (color) {
+          return color;
+        }
+      }
+      return null;
+    }
+    function getTeamScoreColor(player) {
       return options.teamScoreColors.get(options.getPlayerTeamState(player)) || null;
+    }
+    function getPlayerScoreColor(row, player) {
+      const keys = getScoreRowColorKeys(row, player);
+      return getPlayerDirectScoreColor(player) || getRememberedScoreRowColor(keys) || getTeamScoreColor(player);
     }
     function syncScoreRowTextContrast(row) {
       const background = getEffectiveBackgroundColor(row);
@@ -11036,30 +12374,41 @@ ${lockState}`;
       }
       return changed;
     }
+    function getUniquePlayersByName(players) {
+      const playersByName = /* @__PURE__ */ new Map();
+      for (const player of players) {
+        const name = normalizeScoreName(getPlayerDisplayName(player));
+        if (!name) {
+          continue;
+        }
+        playersByName.set(name, playersByName.has(name) ? null : player);
+      }
+      return playersByName;
+    }
     function syncScoreRowsFromPlayers(scorePanel) {
       const rows = Array.from(scorePanel.querySelectorAll(".entryContainer"));
       const players = options.getScorePlayers();
       if (!rows.length || !players.length) {
         return false;
       }
-      const playersByName = /* @__PURE__ */ new Map();
-      for (const player of players) {
-        const name = normalizeScoreName(getPlayerDisplayName(player));
-        if (name) {
-          playersByName.set(name, player);
-        }
-      }
+      const playersByName = getUniquePlayersByName(players);
       let changed = false;
       rows.forEach((row, index) => {
         const inlineColor = parseCssRgbColor(getElementBackgroundColor(row));
         const computedColor = parseCssRgbColor(window.getComputedStyle(row).backgroundColor);
-        const player = playersByName.get(getScoreRowName(row)) || players[index];
-        const playerColor = getPlayerScoreColor(player);
-        if (!playerColor || inlineColor && !isFallbackScoreRowColor(inlineColor)) {
+        const currentColor = inlineColor || computedColor;
+        const namedPlayer = playersByName.get(getScoreRowName(row));
+        const player = namedPlayer || players[index];
+        const colorKeys = getScoreRowColorKeys(row, player);
+        if (currentColor && !isFallbackScoreRowColor(currentColor)) {
+          rememberScoreRowColor(colorKeys, currentColor);
+        }
+        const playerColor = getPlayerScoreColor(row, player);
+        if (!playerColor) {
           changed = syncScoreRowTextContrast(row) || changed;
           return;
         }
-        if (!inlineColor && computedColor && !isFallbackScoreRowColor(computedColor)) {
+        if (currentColor && colorsMatch(currentColor, playerColor)) {
           changed = syncScoreRowTextContrast(row) || changed;
           return;
         }
@@ -11069,29 +12418,38 @@ ${lockState}`;
       });
       return changed;
     }
+    function syncAllScoreRowsFromPlayers() {
+      let changed = false;
+      for (const scorePanel of document.querySelectorAll(".scores")) {
+        changed = syncScoreRowsFromPlayers(scorePanel) || changed;
+      }
+      return changed;
+    }
     function makeScoreRowsOpaque(scorePanel) {
-      for (const row of scorePanel.querySelectorAll(".entryContainer")) {
+      const rows = Array.from(scorePanel.querySelectorAll(".entryContainer"));
+      const players = options.getScorePlayers();
+      rows.forEach((row, index) => {
         const inlineColor = parseCssRgbColor(getElementBackgroundColor(row));
         const computedColor = parseCssRgbColor(window.getComputedStyle(row).backgroundColor);
         const parsedColor = inlineColor || computedColor;
-        if (!parsedColor || parsedColor.alpha >= 1) {
-          syncScoreRowTextContrast(row);
-          continue;
+        const player = players[index];
+        const colorKeys = getScoreRowColorKeys(row, player);
+        if (parsedColor && !isFallbackScoreRowColor(parsedColor)) {
+          rememberScoreRowColor(colorKeys, parsedColor);
         }
-        if (!inlineColor && isFallbackScoreRowColor(parsedColor)) {
-          syncScoreRowTextContrast(row);
-          continue;
+        if (parsedColor && parsedColor.alpha < 1 && (inlineColor || !isFallbackScoreRowColor(parsedColor))) {
+          options.setImportantStyle(
+            row,
+            "background-color",
+            `rgb(${parsedColor.red}, ${parsedColor.green}, ${parsedColor.blue})`
+          );
         }
-        options.setImportantStyle(
-          row,
-          "background-color",
-          `rgb(${parsedColor.red}, ${parsedColor.green}, ${parsedColor.blue})`
-        );
         syncScoreRowTextContrast(row);
-      }
+      });
     }
     return {
       makeScoreRowsOpaque,
+      syncAllScoreRowsFromPlayers,
       syncScoreRowsFromPlayers
     };
   }
@@ -11242,7 +12600,7 @@ ${lockState}`;
       typingIndicatorPositionRaf = 0;
     }
     function syncWorldTypingIndicators(typingPlayers, session = options.getSession()) {
-      const shouldShowWorldIndicators = options.isSessionMatchActive(session) && typingPlayers.length > 0;
+      const shouldShowWorldIndicators = options.isChatFeatureEnabled() && options.isSessionMatchActive(session) && typingPlayers.length > 0;
       const existingLayer = document.querySelector(".qolboxWorldTypingLayer");
       if (!shouldShowWorldIndicators) {
         if (existingLayer) {
@@ -11366,6 +12724,10 @@ ${lockState}`;
       worldTypingIndicators.scheduleTypingIndicatorPositionLoop(session);
     }
     function syncTypingIndicators(scorePanel = null) {
+      if (!options.isChatFeatureEnabled()) {
+        clearTypingIndicators();
+        return false;
+      }
       const session = options.getSession();
       if (!session) {
         worldTypingIndicators.stopTypingIndicatorPositionLoop();
@@ -11382,6 +12744,10 @@ ${lockState}`;
       return changed;
     }
     function notePlayerTyping(playerId) {
+      if (!options.isChatFeatureEnabled()) {
+        clearTypingIndicators();
+        return false;
+      }
       if (playerId === null || playerId === void 0) {
         return false;
       }
@@ -11393,6 +12759,10 @@ ${lockState}`;
       return true;
     }
     function patchTypingIndicatorHooks() {
+      if (!options.isChatFeatureEnabled()) {
+        clearTypingIndicators();
+        return false;
+      }
       const session = options.getSession();
       if (isNativeTypingPulseHookInstalled(session)) {
         return true;
@@ -11576,9 +12946,15 @@ ${lockState}`;
       resizeSettlePasses: RESIZE_SETTLE_PASSES
     });
     const featureGates = createFeatureGateSet(shouldRunFeature);
-    const { patchInGameChatScroll } = createInGameChatScrollController();
+    const { patchEditorMapFileTransfer, removeEditorMapFileTransfer } = createEditorMapFileTransferController({
+      isEditorMapTransferEnabled: featureGates.isEditorMapTransferEnabled
+    });
+    const { cleanupInGameChatScroll, patchInGameChatScroll } = createInGameChatScrollController({
+      isChatFeatureEnabled: featureGates.isChatEnabled
+    });
     const {
       getAdvancedSettings,
+      setAdvancedSetting,
       setAdvancedSettings
     } = createAdvancedSettingsController({
       onApplyPersistentFeatures: () => applyPersistentFeatures(),
@@ -11595,9 +12971,8 @@ ${lockState}`;
       clearFullscreenLayoutStyles: () => clearFullscreenLayoutStyles(),
       clearReservePasswordPromptPending: () => clearReservePasswordPromptPending(),
       clearTypingIndicators: () => clearTypingIndicators(),
+      cleanupInGameChatScroll: () => cleanupInGameChatScroll(),
       disableGameStartAlerts: () => disableGameStartAlerts(),
-      getReserveState: () => getReserveState(),
-      hideMobileGrabButton: () => hideMobileGrabButton(),
       hookHowlPrototype: () => hookHowlPrototype(),
       hookYouTubePlayer: () => hookYouTubePlayer(),
       installGameStartIndicatorHooks: () => installGameStartIndicatorHooks(),
@@ -11605,21 +12980,28 @@ ${lockState}`;
       installTabFocusHooks: () => installTabFocusHooks(),
       installYouTubeReadyCallbackHook: () => installYouTubeReadyCallbackHook(),
       patchChatTabOrder: () => patchChatTabOrder(),
+      patchEditorMapFileTransfer: () => patchEditorMapFileTransfer(),
       patchInGameChatScroll,
       patchGameVolumeMenu: () => patchGameVolumeMenu(),
       patchJukeboxKnob: () => patchJukeboxKnob(),
       patchJukeboxMenu: () => patchJukeboxMenu(),
       patchLobbyMusicController: () => patchLobbyMusicController(),
+      patchLobbyBlacklist: () => patchLobbyBlacklist(),
       patchMobileGrabButton: () => patchMobileGrabButton(),
       patchMobileQolboxHamburgerEntry: () => patchMobileQolboxHamburgerEntry(),
       patchReserveSpotFeature: () => patchReserveSpotFeature(),
       patchSlashCommands: () => patchSlashCommands(),
       patchSwitchTeamsButton: () => patchSwitchTeamsButton(),
       patchTypingIndicatorHooks: () => patchTypingIndicatorHooks(),
+      removeEditorMapFileTransfer: () => removeEditorMapFileTransfer(),
       removeJukeboxMenuItem: () => removeJukeboxMenuItem(),
+      removeMobileGrabButton: () => removeMobileGrabButton(),
       removeSwitchTeamsButton: () => removeSwitchTeamsButton(),
+      restoreChatTabOrder: () => restoreChatTabOrder(),
+      restoreJukeboxState: () => restoreJukeboxState(),
       featureGates,
       stopReserveSpot: (options) => stopReserveSpot(options),
+      syncScoreRows: () => syncAllScoreRowsFromPlayers(),
       syncReserveJoinButtonLabel: () => syncReserveJoinButtonLabel(),
       syncTypingIndicators: () => syncTypingIndicators(),
       updateGameStartIndicator: () => updateGameStartIndicator()
@@ -11643,6 +13025,7 @@ ${lockState}`;
       isMobileQolboxMenuContext,
       layoutMobileGrabButton,
       patchMobileGrabButton,
+      removeMobileGrabButton,
       setMobileGrabPressed,
       shouldShowMobileGrabButton,
       syncMobileGrabButton,
@@ -11709,6 +13092,7 @@ ${lockState}`;
       isChatInput,
       patchChatTabOrder,
       resetBrowserScroll,
+      restoreChatTabOrder,
       restoreLobbyChatPrompt,
       shouldCaptureGameplayBackgroundFocus
     } = createInputFocusFeatureBundle({
@@ -11724,6 +13108,7 @@ ${lockState}`;
       makeScoreRowsOpaque,
       notePlayerTyping,
       patchTypingIndicatorHooks,
+      syncAllScoreRowsFromPlayers,
       syncScoreRowsFromPlayers,
       syncTypingIndicators,
       syncWorldTypingIndicators
@@ -11776,6 +13161,7 @@ ${lockState}`;
       setFeatureEnabled
     });
     const { getOnboardingSteps, installQolboxMenuHooks, openQolboxMenu, renderQolboxMenu, scheduleFirstBootOnboarding } = qolboxMenuController;
+    const { handlePopupKeyboard, installPopupKeyboardHooks } = createPopupKeyboardController();
     const {
       applyGameVolume,
       applyJukeboxState,
@@ -11789,6 +13175,7 @@ ${lockState}`;
       patchJukeboxMenu,
       patchLobbyMusicController,
       removeJukeboxMenuItem,
+      restoreJukeboxState,
       setJukeboxState,
       stopLobbyMusicIfNeeded
     } = createAudioFeatureBundle({
@@ -11809,8 +13196,11 @@ ${lockState}`;
       installPlayerPopupDismissal: installPlayerPopupDismissal2,
       handleJoinSlashCommand,
       handleQolboxSlashCommand,
+      handleBlacklistSlashCommand,
       handleSpecSlashCommand,
       patchSlashCommands,
+      patchLobbyBlacklist,
+      enforceBlacklist,
       patchSwitchTeamsButton,
       requestBulkTeamState,
       requestTeamState,
@@ -11821,9 +13211,11 @@ ${lockState}`;
     } = createLobbyCommandsFeatureBundle({
       areGameStartAlertsEnabled: featureGates.isGameStartAlertEnabled,
       areLobbyCommandsEnabled: featureGates.isLobbyCommandsEnabled,
+      isBlacklistEnforcementEnabled: () => isAdvancedBlacklistEnforcementEnabled(getAdvancedSettings()),
       installStartAlertHooks: (session) => patchMultiplayerSessionGameStartHooks(session),
       isCurrentPlayerSpectating,
-      noteLocallyInitiatedPlayTransition
+      noteLocallyInitiatedPlayTransition,
+      setBlacklistEnforcementEnabled: (enabled) => setAdvancedSetting(ADVANCED_BLACKLIST_ENFORCEMENT, enabled)
     });
     const {
       clearFullscreenSignature,
@@ -11863,12 +13255,63 @@ ${lockState}`;
       shouldWaitForNativeLayoutSeed,
       stopLobbyMusicIfNeeded,
       syncSpectateControlsBottomWithJukebox,
+      syncNonFullscreenHud: () => {
+        if (featureGates.isChatEnabled()) {
+          syncAllScoreRowsFromPlayers();
+          syncTypingIndicators();
+        }
+      },
       updateGameStartIndicator
     });
+    void captureGameplayInputFocus;
+    void clearGameStartIndicator;
+    void endCurrentGame;
+    void enforceBlacklist;
+    void findPlayerByName2;
+    void fitEditorCanvasToNative;
+    void fitEditorLayerToFrame;
+    void getEffectiveJukeboxPercent;
+    void getOnboardingSteps;
+    void getScaledEditorFrame;
+    void getWorldTypingPosition;
+    void handleBlacklistSlashCommand;
+    void handleGameStartInteractionFocus;
+    void handleGameplayBackgroundFocus;
+    void handleJoinSlashCommand;
+    void handleMobileGrabPointerStart;
+    void hideMobileGrabButton;
+    void handlePopupKeyboard;
+    void handleQolboxSlashCommand;
+    void handleSpecSlashCommand;
+    void hasPendingLocalPlayTransition;
+    void isMobileGameMode;
+    void isMobileQolboxMenuContext;
+    void isPageFocused;
+    void isPlayableLobby;
+    void layoutMobileGrabButton;
+    void layoutRelativeHud;
+    void notePlayerTyping;
+    void requestBulkTeamState;
+    void requestTeamState;
+    void restartCurrentGame;
+    void restoreLobbyChatPrompt;
+    void setGameStartPageFocused;
+    void setGameStartWasInLobbyWhenUnfocused;
+    void setGameStartWasPlayingWhenUnfocused;
+    void setJukeboxState;
+    void setMobileGrabPressed;
+    void shouldCaptureGameplayBackgroundFocus;
+    void shouldShowMobileGrabButton;
+    void showAllHostSettings;
+    void switchTeamPlayers;
+    void syncAllScoreRowsFromPlayers;
+    void syncMobileGrabButton;
+    void syncWorldTypingIndicators;
     runQolboxStartupSequence({
       applyFeatureRootClasses,
       ensureGlobalStyle,
       installFullscreenHooks,
+      installPopupKeyboardHooks,
       installQolboxMenuHooks,
       installReserveSocketCaptureHook,
       installYouTubeReadyCallbackHook,

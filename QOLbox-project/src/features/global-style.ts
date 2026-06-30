@@ -4,6 +4,7 @@ import { getChatGlobalStyleText } from './global-style-chat';
 import { getQolboxMenuGlobalStyleText } from './global-style-menu';
 import { getMobileGrabGlobalStyleText, type MobileGrabGlobalStyleOptions } from './global-style-mobile-grab';
 import { getTypingGlobalStyleText } from './global-style-typing';
+import { getEditorMapGlobalStyleText } from './global-style-editor-map';
 
 interface GlobalStyleOptions extends FullscreenGlobalStyleOptions, MobileGrabGlobalStyleOptions {
   styleId: string;
@@ -33,6 +34,8 @@ function getGlobalStyleText(options: GlobalStyleOptions): string {
       ${getQolboxMenuGlobalStyleText()}
 
       ${getMobileGrabGlobalStyleText(options)}
+
+      ${getEditorMapGlobalStyleText()}
     `;
 }
 

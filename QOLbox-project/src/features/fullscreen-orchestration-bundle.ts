@@ -45,6 +45,7 @@ interface FullscreenOrchestrationBundleOptions {
   shouldWaitForNativeLayoutSeed(): boolean;
   stopLobbyMusicIfNeeded(): void;
   syncSpectateControlsBottomWithJukebox(): void;
+  syncNonFullscreenHud(): void;
   updateGameStartIndicator(): void;
 }
 
@@ -67,6 +68,7 @@ export function createFullscreenOrchestrationBundle(options: FullscreenOrchestra
     setNativeFullscreenSize: options.setNativeFullscreenSize,
     shouldWaitForNativeLayoutSeed: options.shouldWaitForNativeLayoutSeed,
     stopLobbyMusicIfNeeded: options.stopLobbyMusicIfNeeded,
+    syncNonFullscreenHud: options.syncNonFullscreenHud,
     updateGameStartIndicator: options.updateGameStartIndicator,
   });
 

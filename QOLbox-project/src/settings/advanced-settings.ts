@@ -7,6 +7,7 @@ import {
 
 export const ADVANCED_RESERVE_RETRY_INTERVAL_MS = 'reserveRetryIntervalMs';
 export const ADVANCED_COMMAND_ALIASES = 'commandAliases';
+export const ADVANCED_BLACKLIST_ENFORCEMENT = 'blacklistEnforcement';
 export const ADVANCED_ALERT_DELAY_MS = 'gameStartAlertDelayMs';
 export const ADVANCED_ALERT_FLASH_INTERVAL_MS = 'gameStartAlertFlashIntervalMs';
 export const ADVANCED_TYPING_DURATION_MS = 'typingIndicatorDurationMs';
@@ -14,6 +15,7 @@ export const ADVANCED_TYPING_DURATION_MS = 'typingIndicatorDurationMs';
 export type AdvancedSettingKey =
   | typeof ADVANCED_RESERVE_RETRY_INTERVAL_MS
   | typeof ADVANCED_COMMAND_ALIASES
+  | typeof ADVANCED_BLACKLIST_ENFORCEMENT
   | typeof ADVANCED_ALERT_DELAY_MS
   | typeof ADVANCED_ALERT_FLASH_INTERVAL_MS
   | typeof ADVANCED_TYPING_DURATION_MS;
@@ -23,6 +25,7 @@ export type AdvancedSettingValue = boolean | number;
 export type AdvancedSettings = {
   [ADVANCED_RESERVE_RETRY_INTERVAL_MS]: number;
   [ADVANCED_COMMAND_ALIASES]: boolean;
+  [ADVANCED_BLACKLIST_ENFORCEMENT]: boolean;
   [ADVANCED_ALERT_DELAY_MS]: number;
   [ADVANCED_ALERT_FLASH_INTERVAL_MS]: number;
   [ADVANCED_TYPING_DURATION_MS]: number;
@@ -71,6 +74,13 @@ export const ADVANCED_SETTING_DEFINITIONS: readonly AdvancedSettingDefinition[] 
     kind: 'boolean',
     title: 'Command aliases',
     description: 'Enable shorthand commands such as /rec and /r.',
+    defaultValue: true,
+  },
+  {
+    key: ADVANCED_BLACKLIST_ENFORCEMENT,
+    kind: 'boolean',
+    title: 'Automatic blacklist',
+    description: 'Automatically ban exact-name blacklist matches while you are host.',
     defaultValue: true,
   },
   {
@@ -195,4 +205,10 @@ export function getAdvancedTypingIndicatorDurationMs(settings: AdvancedSettings 
 
 export function areAdvancedCommandAliasesEnabled(settings: AdvancedSettings = loadAdvancedSettings()): boolean {
   return settings[ADVANCED_COMMAND_ALIASES];
+}
+
+export function isAdvancedBlacklistEnforcementEnabled(
+  settings: AdvancedSettings = loadAdvancedSettings()
+): boolean {
+  return settings[ADVANCED_BLACKLIST_ENFORCEMENT];
 }

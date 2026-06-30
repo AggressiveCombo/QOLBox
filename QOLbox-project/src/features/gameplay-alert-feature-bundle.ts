@@ -4,6 +4,7 @@ import {
   FULLSCREEN_PLAY_LAYER_SELECTOR,
   GAME_START_END_WATCH_INTERVAL_MS,
   GAME_START_LOCAL_TRANSITION_TIMEOUT_MS,
+  GAME_START_SESSION_ENTRY_GRACE_MS,
   GAME_START_WATCH_INTERVAL_MS,
 } from '../config/qolbox-constants';
 import {
@@ -45,12 +46,18 @@ export function createGameplayAlertFeatureBundle(options: GameplayAlertFeatureBu
     getFlashIntervalMs: getAdvancedGameStartFlashIntervalMs,
     getIndicatorDelayMs: getAdvancedGameStartAlertDelayMs,
     localTransitionTimeoutMs: GAME_START_LOCAL_TRANSITION_TIMEOUT_MS,
+    sessionEntryGraceMs: GAME_START_SESSION_ENTRY_GRACE_MS,
     watchIntervalMs: GAME_START_WATCH_INTERVAL_MS,
     getSession: getMultiplayerSession,
     isEnabled: options.isGameStartAlertEnabled,
+    isMatchActive: () => isSessionMatchActive(getMultiplayerSession()),
     isPageFocused: gameplayState.isPageFocused,
     isPlayableLobby: gameplayState.isPlayableLobby,
     isPlayingMatch: gameplayState.isPlayingMatch,
+    isSessionActive: () => {
+      const session = getMultiplayerSession();
+      return isSessionLobbyActive(session) || isSessionMatchActive(session);
+    },
   });
 
   return {

@@ -97,3 +97,20 @@ export function setJukeboxKnobVisual(
 
   updateJukeboxKnobAccessibility(knob, visualPercent, state);
 }
+
+export function clearJukeboxKnobAccessibility(knob: Element | null): void {
+  if (!knob) {
+    return;
+  }
+
+  knob.removeAttribute('aria-label');
+  knob.removeAttribute('aria-orientation');
+  knob.removeAttribute('aria-valuemin');
+  knob.removeAttribute('aria-valuemax');
+  knob.removeAttribute('aria-valuenow');
+  knob.removeAttribute('aria-valuetext');
+  knob.removeAttribute('role');
+  if (knob.getAttribute('tabindex') === '0') {
+    knob.removeAttribute('tabindex');
+  }
+}

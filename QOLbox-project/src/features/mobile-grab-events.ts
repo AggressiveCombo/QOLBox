@@ -21,6 +21,10 @@ export function getTouchIdentifier(touch: unknown): unknown {
   return readObjectProperty(touch, 'identifier');
 }
 
+export function getPointerIdentifier(event: unknown): unknown {
+  return readObjectProperty(event, 'pointerId');
+}
+
 export function isPrimaryPointerStart(event: unknown): boolean {
   const button = readObjectProperty(event, 'button');
   return button === undefined || button === 0;

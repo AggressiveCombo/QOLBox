@@ -31,6 +31,7 @@ Source modules currently cover:
 - `src/settings/audio-storage.ts`: persistent audio values and numeric normalization.
 - `src/settings/advanced-settings.ts`: persisted advanced-setting definitions, validation, defaults, and typed accessors for retry, alias, alert, and typing options.
 - `src/settings/advanced-settings-controller.ts`: mutable advanced-setting state plus injected apply/render/layout-refresh callbacks for the QOLBox settings menu.
+- `src/settings/blacklist-storage.ts`: persisted exact-name blacklist storage, normalization, de-duplication, and entry caps.
 - `src/features/audio-levels.ts`: audio curve math, jukebox angle/volume conversions, transform parsing, and keyboard adjustment targets through shared object guards.
 - `src/features/audio-feature-bundle.ts`: audio feature construction bundle for game volume, jukebox controls, YouTube sync, and lobby music suppression.
 - `src/features/game-volume-control.ts`: persisted game-volume updates and adapter-backed Howler volume scaling/retry sound suppression.
@@ -65,6 +66,7 @@ Source modules currently cover:
 - `src/hitbox/youtube-player-adapter.ts`: observed YouTube iframe ready-callback and player-constructor wrapping for jukebox volume synchronization.
 - `src/hitbox/lobby-music-adapter.ts`: observed native lobby-music controller start/stop wrapping and suppression helpers.
 - `src/hitbox/session-adapter.ts`: read-only access to observed native lobby/player/session state through shared native-access reads.
+- `src/hitbox/player-join-hooks.ts`: observed player-list join hook wrapping used by automatic blacklist enforcement.
 - `src/hitbox/player-appearance-adapter.ts`: observed player display-name and color-candidate discovery for commands, typing indicators, and score-row repair.
 - `src/hitbox/world-state-adapter.ts`: observed gameplay player-entity and camera-state reads for world-positioned typing bubbles.
 - `src/hitbox/reserve-socket-emit-patcher.ts`: shared reserve socket `emit` wrapper installation for live sockets and socket prototypes.
@@ -83,6 +85,7 @@ Source modules currently cover:
 - `src/hitbox/typing-pulse-adapter.ts`: observed native lobby typing-pulse hook installation and wrapper markers.
 - `src/hitbox/match-actions.ts`: native end/start match actions.
 - `src/hitbox/game-start-hooks.ts`: native in-game start-event hook wrapping for observed remote start handlers and local start requests through shared native-access helpers.
+- `src/hitbox/editor-map-adapter.ts`: guarded native editor map import/export access, including current visible map capture and editor refresh.
 - `src/features/first-boot-onboarding.ts`: first-start onboarding scheduling and DOMContentLoaded deferral.
 - `src/features/lobby-command-actions.ts`: slash-command action facade for `/red`, `/blue`, play-command delegation, team action delegation, and command-output delegation.
 - `src/features/lobby-command-play-actions.ts`: `/join` and `/spec` play-state command decisions, all-target handling, and already-playing status.
@@ -98,6 +101,7 @@ Source modules currently cover:
 - `src/features/slash-command-interceptor.ts`: QOLBox slash-command dispatch gating, `/rec` aliasing, and native-help augmentation decisions through the chat-send adapter.
 - `src/features/lobby-command-dispatcher.ts`: slash command routing plus native `/end` and `/restart` orchestration, including handled-command chat draft cleanup.
 - `src/features/lobby-command-host-actions.ts`: `/host playername` validation, host-transfer dispatch, and host-status output.
+- `src/features/lobby-blacklist.ts`: `/blacklist` command handling, stored-name matching/removal, and automatic host-side ban enforcement.
 - `src/features/switch-teams-button.ts`: stable vanilla-row SWITCH control insertion and click binding.
 - `src/features/team-mode-detector.ts`: read-only native/UI/team-state team-mode detection.
 - `src/features/player-popup-dismissal.ts`: Escape and outside-click dismissal for native player context menus.
@@ -115,6 +119,7 @@ Source modules currently cover:
 - `src/features/qolbox-menu-keyboard.ts`: QOLBox menu shortcut modifier and key matching.
 - `src/features/qolbox-menu-view.ts`: QOLBox menu overlay creation, panel rendering, event wiring, and first-control focus.
 - `src/features/qolbox-menu-controller.ts`: QOLBox onboarding/settings dialog lifecycle, keyboard open/close handling, click routing, and DOM removal on close.
+- `src/features/popup-keyboard-controls.ts`: Esc/Enter/arrow-key handling for visible native Hitbox popups without stealing text-editor input.
 - `src/features/qolbox-shell-feature-bundle.ts`: QOLBox shell construction bundle for global CSS injection and feature/root class synchronization.
 - `src/features/render-canvas-focus.ts`: active render-canvas focus return and browser scroll reset helpers through shared DOM tabbable-element guards.
 - `src/features/reserve-action-controls.ts`: reserve/JOIN button label, disabled-state synchronization, visible selected-room clearing, and password-prompt reserve-label state through shared dataset guards.
@@ -143,6 +148,8 @@ Source modules currently cover:
 - `src/features/global-style-typing.ts`: score-row and world-positioned typing-indicator layer/icon CSS.
 - `src/features/global-style-mobile-grab.ts`: mobile Grab button icon, sizing, display-default, transform, and z-index CSS.
 - `src/features/global-style-chat.ts`: readable/scrollable in-game chat hover styles and reading-state fade suppression.
+- `src/features/global-style-editor-map.ts`: editor map import/export status-message CSS.
+- `src/features/editor-map-file-transfer.ts`: editor File menu Import/Export item insertion, local file parsing, download creation, and status feedback.
 - `src/features/game-start-shared.ts`: shared game-start tab-title prefixes, favicon, and title-prefix stripping.
 - `src/features/game-start-display.ts`: away-game alert title/favicon mutation, original favicon restoration, and cross-frame title/favicon relay.
 - `src/features/game-start-focus-hooks.ts`: one-time game-start alert focus/blur/visibility/pointer listener installation.

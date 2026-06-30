@@ -5,6 +5,7 @@ export const FEATURE_CHAT = 'chat';
 export const FEATURE_GAME_START_ALERT = 'gameStartAlert';
 export const FEATURE_MOBILE_GRAB = 'mobileGrab';
 export const FEATURE_LOBBY_COMMANDS = 'lobbyCommands';
+export const FEATURE_EDITOR_MAP_TRANSFER = 'editorMapTransfer';
 
 export type FeatureKey =
   | typeof FEATURE_FULLSCREEN
@@ -13,7 +14,8 @@ export type FeatureKey =
   | typeof FEATURE_CHAT
   | typeof FEATURE_GAME_START_ALERT
   | typeof FEATURE_MOBILE_GRAB
-  | typeof FEATURE_LOBBY_COMMANDS;
+  | typeof FEATURE_LOBBY_COMMANDS
+  | typeof FEATURE_EDITOR_MAP_TRANSFER;
 
 export interface FeatureDefinition {
   key: FeatureKey;
@@ -70,7 +72,13 @@ export const FEATURE_DEFINITIONS: readonly FeatureDefinition[] = [
     shortTitle: 'Commands',
     summary: 'Add practical lobby controls, bulk player targets, and the complete host-settings listing.',
     onboardingText:
-      'Use /spec, /join, /red, /blue, /switch, /lock, /unlock, /host, /start, /end and /restart. /rec is shorthand for /record, and /r is shorthand for /restart. Use all, playing, or spectators for group targets, /settings all for every host setting, and exact or unique partial names with native /kick and /ban.',
+      'Use /spec, /join, /red, /blue, /switch, /lock, /unlock, /host, /start, /end, /restart, and /blacklist. /rec is shorthand for /record, and /r is shorthand for /restart. Use all, playing, or spectators for group targets, /settings all for every host setting, and exact or unique partial names with native /kick and /ban.',
+  },
+  {
+    key: FEATURE_EDITOR_MAP_TRANSFER,
+    title: 'Map Import and Export',
+    shortTitle: 'Map Files',
+    summary: 'Add local Import and Export items to the editor File menu for saving map files on your computer.',
   },
 ];
 
@@ -82,6 +90,7 @@ const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
   [FEATURE_GAME_START_ALERT]: true,
   [FEATURE_MOBILE_GRAB]: true,
   [FEATURE_LOBBY_COMMANDS]: true,
+  [FEATURE_EDITOR_MAP_TRANSFER]: true,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -5,6 +5,7 @@ interface StartupSequenceOptions {
   applyFeatureRootClasses(): void;
   ensureGlobalStyle(): void;
   installFullscreenHooks(): void;
+  installPopupKeyboardHooks(): void;
   installQolboxMenuHooks(): void;
   installReserveSocketCaptureHook(): void;
   installYouTubeReadyCallbackHook(): void;
@@ -26,6 +27,7 @@ export function runQolboxStartupSequence(options: StartupSequenceOptions): void 
   options.applyFeatureRootClasses();
   options.ensureGlobalStyle();
   options.installQolboxMenuHooks();
+  options.installPopupKeyboardHooks();
 
   if (options.isReserveEnabled()) {
     options.installReserveSocketCaptureHook();
