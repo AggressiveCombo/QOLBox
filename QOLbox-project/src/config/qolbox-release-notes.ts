@@ -36,33 +36,31 @@ interface ReleaseHistoryCacheRecord {
   fetchedAt: number;
 }
 
-interface UserscriptHttpResponse {
-  responseText?: unknown;
+interface ReleaseHistoryBridgeResponse {
+  error?: unknown;
+  id?: unknown;
+  ok?: unknown;
+  source?: unknown;
   status?: unknown;
-  statusText?: unknown;
+  text?: unknown;
+  type?: unknown;
 }
 
-interface UserscriptHttpRequestDetails {
-  headers?: Record<string, string>;
-  method: 'GET';
-  onerror(error: unknown): void;
-  onload(response: UserscriptHttpResponse): void;
-  ontimeout(): void;
-  timeout: number;
-  url: string;
+declare global {
+  interface Window {
+    __qolboxReleaseHistoryBridgeReady?: boolean;
+  }
 }
-
-interface UserscriptHttpRequestHandle {
-  abort?(): void;
-}
-
-type UserscriptHttpRequest = (details: UserscriptHttpRequestDetails) => Promise<UserscriptHttpResponse> | UserscriptHttpRequestHandle | void;
 
 const GREASYFORK_HISTORY_URL = 'https://greasyfork.org/en/scripts/568667-qolbox/versions?show_all_versions=1';
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/AggressiveCombo/QOLBox/releases?per_page=100';
 const RELEASE_HISTORY_CACHE_KEY = 'vm.hitbox.qolboxReleaseHistory.v2';
 const RELEASE_HISTORY_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const RELEASE_HISTORY_FETCH_TIMEOUT_MS = 7000;
+const RELEASE_HISTORY_BRIDGE_REQUEST_SOURCE = 'qolbox-release-history';
+const RELEASE_HISTORY_BRIDGE_RESPONSE_SOURCE = 'qolbox-release-history-bridge';
+const RELEASE_HISTORY_BRIDGE_REQUEST_TYPE = 'fetch';
+const RELEASE_HISTORY_BRIDGE_RESPONSE_TYPE = 'fetch-result';
 const LOCAL_CURRENT_RELEASE_FALLBACK_NOTES: readonly string[] = [
   'No public update notes were found for this version.',
 ];
@@ -309,55 +307,6 @@ function parseGitHubReleaseEntries(rawValue: unknown): QolboxReleaseNote[] {
     .filter(entry => entry.version && entry.notes.length);
 }
 
-function getUserscriptHttpRequest(): UserscriptHttpRequest | null {
-  const globalScope = globalThis as {
-    GM_xmlhttpRequest?: UserscriptHttpRequest;
-  };
-  return typeof globalScope.GM_xmlhttpRequest === 'function' ? globalScope.GM_xmlhttpRequest : null;
-}
-
-function getUserscriptResponseText(response: UserscriptHttpResponse): string {
-  return typeof response.responseText === 'string' ? response.responseText : '';
-}
-
-function isSuccessfulHttpStatus(status: unknown): boolean {
-  return typeof status === 'number' && status >= 200 && status < 300;
-}
-
-function fetchTextWithUserscriptRequest(url: string, headers: Record<string, string>): Promise<string> {
-  const request = getUserscriptHttpRequest();
-  if (!request) {
-    return Promise.reject(new Error('GM_xmlhttpRequest is unavailable.'));
-  }
-
-  return new Promise((resolve, reject) => {
-    const details: UserscriptHttpRequestDetails = {
-      method: 'GET',
-      url,
-      headers,
-      timeout: RELEASE_HISTORY_FETCH_TIMEOUT_MS,
-      onload(response) {
-        if (!isSuccessfulHttpStatus(response.status)) {
-          reject(new Error(`HTTP ${String(response.status || 0)}${response.statusText ? ` ${String(response.statusText)}` : ''}`));
-          return;
-        }
-        resolve(getUserscriptResponseText(response));
-      },
-      onerror(error) {
-        reject(error instanceof Error ? error : new Error('GM_xmlhttpRequest failed.'));
-      },
-      ontimeout() {
-        reject(new Error('GM_xmlhttpRequest timed out.'));
-      },
-    };
-
-    const maybePromise = request(details);
-    if (maybePromise && typeof (maybePromise as Promise<UserscriptHttpResponse>).then === 'function') {
-      (maybePromise as Promise<UserscriptHttpResponse>).then(details.onload, details.onerror);
-    }
-  });
-}
-
 async function fetchTextWithPageFetch(url: string, headers: Record<string, string>): Promise<string> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), RELEASE_HISTORY_FETCH_TIMEOUT_MS);
@@ -378,6 +327,64 @@ async function fetchTextWithPageFetch(url: string, headers: Record<string, strin
   }
 }
 
+function isReleaseHistoryBridgeResponse(value: unknown, id: string): value is ReleaseHistoryBridgeResponse {
+  return (
+    isRecord(value) &&
+    value.source === RELEASE_HISTORY_BRIDGE_RESPONSE_SOURCE &&
+    value.type === RELEASE_HISTORY_BRIDGE_RESPONSE_TYPE &&
+    value.id === id
+  );
+}
+
+function makeBridgeRequestId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function fetchTextWithUserscriptBridge(url: string, headers: Record<string, string>): Promise<string> {
+  if (!window.__qolboxReleaseHistoryBridgeReady) {
+    return Promise.reject(new Error('Release-history bridge is unavailable.'));
+  }
+
+  return new Promise((resolve, reject) => {
+    const id = makeBridgeRequestId();
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('Release-history bridge timed out.'));
+    }, RELEASE_HISTORY_FETCH_TIMEOUT_MS);
+
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('message', handleBridgeMessage);
+    };
+
+    const handleBridgeMessage = (event: MessageEvent) => {
+      if (event.source !== window || !isReleaseHistoryBridgeResponse(event.data, id)) {
+        return;
+      }
+
+      cleanup();
+      if (event.data.ok === true && typeof event.data.text === 'string') {
+        resolve(event.data.text);
+        return;
+      }
+
+      reject(new Error(typeof event.data.error === 'string' ? event.data.error : 'Release-history bridge failed.'));
+    };
+
+    window.addEventListener('message', handleBridgeMessage);
+    window.postMessage(
+      {
+        source: RELEASE_HISTORY_BRIDGE_REQUEST_SOURCE,
+        type: RELEASE_HISTORY_BRIDGE_REQUEST_TYPE,
+        id,
+        url,
+        headers,
+      },
+      window.location.origin
+    );
+  });
+}
+
 async function fetchText(url: string, headers: Record<string, string> = {}): Promise<string> {
   const requestHeaders = {
     Accept: 'text/html',
@@ -387,7 +394,7 @@ async function fetchText(url: string, headers: Record<string, string> = {}): Pro
   try {
     return await fetchTextWithPageFetch(url, requestHeaders);
   } catch {
-    return fetchTextWithUserscriptRequest(url, requestHeaders);
+    return fetchTextWithUserscriptBridge(url, requestHeaders);
   }
 }
 
