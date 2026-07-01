@@ -2,7 +2,7 @@
 // @name         QOLBox
 // @namespace    Violentmonkey Scripts
 // @author       gpt-5.4 and gpt-5.5
-// @version      2.1.1
+// @version      2.1.2
 // @description  Fullscreen hitbox.io, reserve spots, away-tab alerts, audio controls, mobile Grab, readable chat, lobby commands, map import/export, and first-start setup for hitbox.io.
 // @license      ISC
 // @match        https://hitbox.io/
@@ -11,7 +11,9 @@
 // @match        https://www.hitbox.io/game2.html*
 // @run-at       document-start
 // @inject-into  page
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      api.github.com
+// @connect      greasyfork.org
 // @downloadURL https://update.greasyfork.org/scripts/568667/QOLbox.user.js
 // @updateURL https://update.greasyfork.org/scripts/568667/QOLbox.meta.js
 // ==/UserScript==
@@ -8713,7 +8715,7 @@
   }
 
   // src/config/qolbox-version.ts
-  var QOLBOX_VERSION = "2.1.1";
+  var QOLBOX_VERSION = "2.1.2";
   var QOLBOX_VERSION_LABEL = `v${QOLBOX_VERSION}`;
   var QOLBOX_GREASYFORK_URL = "https://greasyfork.org/en/scripts/568667-qolbox";
   var QOLBOX_GITHUB_URL = "https://github.com/AggressiveCombo/QOLBox";
@@ -8746,14 +8748,6 @@
   }
   function normalizeVersionKey(version) {
     return String(version || "").trim().replace(/^v/i, "").toLowerCase();
-  }
-  function areVersionKeysEquivalent(left, right) {
-    const leftPoint = parseVersionPoint(left);
-    const rightPoint = parseVersionPoint(right);
-    if (leftPoint && rightPoint) {
-      return compareVersionPoints(leftPoint, rightPoint) === 0;
-    }
-    return normalizeVersionKey(left) === normalizeVersionKey(right);
   }
   function parseVersionPoint(version) {
     const normalized = normalizeVersionKey(version);
@@ -8927,7 +8921,48 @@
       };
     }).filter((entry) => entry.version && entry.notes.length);
   }
-  async function fetchJson(url, headers = {}) {
+  function getUserscriptHttpRequest() {
+    const globalScope = globalThis;
+    return typeof globalScope.GM_xmlhttpRequest === "function" ? globalScope.GM_xmlhttpRequest : null;
+  }
+  function getUserscriptResponseText(response) {
+    return typeof response.responseText === "string" ? response.responseText : "";
+  }
+  function isSuccessfulHttpStatus(status) {
+    return typeof status === "number" && status >= 200 && status < 300;
+  }
+  function fetchTextWithUserscriptRequest(url, headers) {
+    const request = getUserscriptHttpRequest();
+    if (!request) {
+      return Promise.reject(new Error("GM_xmlhttpRequest is unavailable."));
+    }
+    return new Promise((resolve, reject) => {
+      const details = {
+        method: "GET",
+        url,
+        headers,
+        timeout: RELEASE_HISTORY_FETCH_TIMEOUT_MS,
+        onload(response) {
+          if (!isSuccessfulHttpStatus(response.status)) {
+            reject(new Error(`HTTP ${String(response.status || 0)}${response.statusText ? ` ${String(response.statusText)}` : ""}`));
+            return;
+          }
+          resolve(getUserscriptResponseText(response));
+        },
+        onerror(error) {
+          reject(error instanceof Error ? error : new Error("GM_xmlhttpRequest failed."));
+        },
+        ontimeout() {
+          reject(new Error("GM_xmlhttpRequest timed out."));
+        }
+      };
+      const maybePromise = request(details);
+      if (maybePromise && typeof maybePromise.then === "function") {
+        maybePromise.then(details.onload, details.onerror);
+      }
+    });
+  }
+  async function fetchTextWithPageFetch(url, headers) {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), RELEASE_HISTORY_FETCH_TIMEOUT_MS);
     try {
@@ -8941,29 +8976,27 @@
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      return await response.json();
+      return await response.text();
     } finally {
       window.clearTimeout(timer);
     }
   }
   async function fetchText(url, headers = {}) {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), RELEASE_HISTORY_FETCH_TIMEOUT_MS);
+    const requestHeaders = {
+      Accept: "text/html",
+      ...headers
+    };
     try {
-      const response = await fetch(url, {
-        headers: {
-          Accept: "text/html",
-          ...headers
-        },
-        signal: controller.signal
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      return await response.text();
-    } finally {
-      window.clearTimeout(timer);
+      return await fetchTextWithPageFetch(url, requestHeaders);
+    } catch {
+      return fetchTextWithUserscriptRequest(url, requestHeaders);
     }
+  }
+  async function fetchJson(url, headers = {}) {
+    return JSON.parse(await fetchText(url, {
+      Accept: "application/json",
+      ...headers
+    }));
   }
   async function fetchGitHubReleaseEntries() {
     return parseGitHubReleaseEntries(await fetchJson(GITHUB_RELEASES_URL));
@@ -9063,13 +9096,8 @@
     return entries;
   }
   function getReleaseNotesBetween(previousVersion, currentVersion = QOLBOX_VERSION, releaseHistory = LOCAL_CURRENT_RELEASE_FALLBACK) {
-    const entries = dedupeLatestReleaseEntries(releaseHistory);
-    const selectedEntries = entries.filter((entry) => isVersionInUpgradeRange(entry.version, previousVersion, currentVersion));
-    if (!previousVersion) {
-      return selectedEntries;
-    }
-    const previousEntry = entries.find((entry) => areVersionKeysEquivalent(entry.version, previousVersion));
-    return previousEntry && !selectedEntries.some((entry) => areVersionKeysEquivalent(entry.version, previousEntry.version)) ? [...selectedEntries, previousEntry] : selectedEntries;
+    const entries = dedupeLatestReleaseEntries([...LOCAL_CURRENT_RELEASE_FALLBACK, ...releaseHistory]);
+    return entries.filter((entry) => isVersionInUpgradeRange(entry.version, null, currentVersion));
   }
   function createInitialReleaseHistoryState(previousVersion, currentVersion = QOLBOX_VERSION) {
     const cachedEntries = getCachedReleaseHistoryEntries();

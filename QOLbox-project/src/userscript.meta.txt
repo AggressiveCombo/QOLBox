@@ -2,7 +2,7 @@
 // @name         QOLBox
 // @namespace    Violentmonkey Scripts
 // @author       gpt-5.4 and gpt-5.5
-// @version      2.1.1
+// @version      2.1.2
 // @description  Fullscreen hitbox.io, reserve spots, away-tab alerts, audio controls, mobile Grab, readable chat, lobby commands, map import/export, and first-start setup for hitbox.io.
 // @license      ISC
 // @match        https://hitbox.io/
@@ -11,7 +11,9 @@
 // @match        https://www.hitbox.io/game2.html*
 // @run-at       document-start
 // @inject-into  page
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      api.github.com
+// @connect      greasyfork.org
 // @downloadURL https://update.greasyfork.org/scripts/568667/QOLbox.user.js
 // @updateURL https://update.greasyfork.org/scripts/568667/QOLbox.meta.js
 // ==/UserScript==

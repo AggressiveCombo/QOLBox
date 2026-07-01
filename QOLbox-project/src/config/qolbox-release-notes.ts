@@ -36,6 +36,28 @@ interface ReleaseHistoryCacheRecord {
   fetchedAt: number;
 }
 
+interface UserscriptHttpResponse {
+  responseText?: unknown;
+  status?: unknown;
+  statusText?: unknown;
+}
+
+interface UserscriptHttpRequestDetails {
+  headers?: Record<string, string>;
+  method: 'GET';
+  onerror(error: unknown): void;
+  onload(response: UserscriptHttpResponse): void;
+  ontimeout(): void;
+  timeout: number;
+  url: string;
+}
+
+interface UserscriptHttpRequestHandle {
+  abort?(): void;
+}
+
+type UserscriptHttpRequest = (details: UserscriptHttpRequestDetails) => Promise<UserscriptHttpResponse> | UserscriptHttpRequestHandle | void;
+
 const GREASYFORK_HISTORY_URL = 'https://greasyfork.org/en/scripts/568667-qolbox/versions?show_all_versions=1';
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/AggressiveCombo/QOLBox/releases?per_page=100';
 const RELEASE_HISTORY_CACHE_KEY = 'vm.hitbox.qolboxReleaseHistory.v2';
@@ -66,16 +88,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeVersionKey(version: unknown): string {
   return String(version || '').trim().replace(/^v/i, '').toLowerCase();
-}
-
-function areVersionKeysEquivalent(left: unknown, right: unknown): boolean {
-  const leftPoint = parseVersionPoint(left);
-  const rightPoint = parseVersionPoint(right);
-  if (leftPoint && rightPoint) {
-    return compareVersionPoints(leftPoint, rightPoint) === 0;
-  }
-
-  return normalizeVersionKey(left) === normalizeVersionKey(right);
 }
 
 function parseVersionPoint(version: unknown): VersionPoint | null {
@@ -297,7 +309,56 @@ function parseGitHubReleaseEntries(rawValue: unknown): QolboxReleaseNote[] {
     .filter(entry => entry.version && entry.notes.length);
 }
 
-async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
+function getUserscriptHttpRequest(): UserscriptHttpRequest | null {
+  const globalScope = globalThis as {
+    GM_xmlhttpRequest?: UserscriptHttpRequest;
+  };
+  return typeof globalScope.GM_xmlhttpRequest === 'function' ? globalScope.GM_xmlhttpRequest : null;
+}
+
+function getUserscriptResponseText(response: UserscriptHttpResponse): string {
+  return typeof response.responseText === 'string' ? response.responseText : '';
+}
+
+function isSuccessfulHttpStatus(status: unknown): boolean {
+  return typeof status === 'number' && status >= 200 && status < 300;
+}
+
+function fetchTextWithUserscriptRequest(url: string, headers: Record<string, string>): Promise<string> {
+  const request = getUserscriptHttpRequest();
+  if (!request) {
+    return Promise.reject(new Error('GM_xmlhttpRequest is unavailable.'));
+  }
+
+  return new Promise((resolve, reject) => {
+    const details: UserscriptHttpRequestDetails = {
+      method: 'GET',
+      url,
+      headers,
+      timeout: RELEASE_HISTORY_FETCH_TIMEOUT_MS,
+      onload(response) {
+        if (!isSuccessfulHttpStatus(response.status)) {
+          reject(new Error(`HTTP ${String(response.status || 0)}${response.statusText ? ` ${String(response.statusText)}` : ''}`));
+          return;
+        }
+        resolve(getUserscriptResponseText(response));
+      },
+      onerror(error) {
+        reject(error instanceof Error ? error : new Error('GM_xmlhttpRequest failed.'));
+      },
+      ontimeout() {
+        reject(new Error('GM_xmlhttpRequest timed out.'));
+      },
+    };
+
+    const maybePromise = request(details);
+    if (maybePromise && typeof (maybePromise as Promise<UserscriptHttpResponse>).then === 'function') {
+      (maybePromise as Promise<UserscriptHttpResponse>).then(details.onload, details.onerror);
+    }
+  });
+}
+
+async function fetchTextWithPageFetch(url: string, headers: Record<string, string>): Promise<string> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), RELEASE_HISTORY_FETCH_TIMEOUT_MS);
   try {
@@ -311,30 +372,30 @@ async function fetchJson(url: string, headers: Record<string, string> = {}): Pro
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    return await response.json();
+    return await response.text();
   } finally {
     window.clearTimeout(timer);
   }
 }
 
 async function fetchText(url: string, headers: Record<string, string> = {}): Promise<string> {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), RELEASE_HISTORY_FETCH_TIMEOUT_MS);
+  const requestHeaders = {
+    Accept: 'text/html',
+    ...headers,
+  };
+
   try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'text/html',
-        ...headers,
-      },
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    return await response.text();
-  } finally {
-    window.clearTimeout(timer);
+    return await fetchTextWithPageFetch(url, requestHeaders);
+  } catch {
+    return fetchTextWithUserscriptRequest(url, requestHeaders);
   }
+}
+
+async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
+  return JSON.parse(await fetchText(url, {
+    Accept: 'application/json',
+    ...headers,
+  }));
 }
 
 async function fetchGitHubReleaseEntries(): Promise<QolboxReleaseNote[]> {
@@ -411,7 +472,9 @@ function parseCachedReleaseHistory(rawValue: string | null): ReleaseHistoryCache
       .map(entry => ({
         version: entry.version,
         source:
-          entry.source === 'github' || entry.source === 'greasyfork' || entry.source === 'local-fallback'
+          entry.source === 'github'
+            || entry.source === 'greasyfork'
+            || entry.source === 'local-fallback'
             ? entry.source
             : 'local-fallback',
         publishedAt: typeof entry.publishedAt === 'string' ? entry.publishedAt : undefined,
@@ -469,16 +532,8 @@ export function getReleaseNotesBetween(
   currentVersion = QOLBOX_VERSION,
   releaseHistory: readonly QolboxReleaseNote[] = LOCAL_CURRENT_RELEASE_FALLBACK
 ): QolboxReleaseNote[] {
-  const entries = dedupeLatestReleaseEntries(releaseHistory);
-  const selectedEntries = entries.filter(entry => isVersionInUpgradeRange(entry.version, previousVersion, currentVersion));
-  if (!previousVersion) {
-    return selectedEntries;
-  }
-
-  const previousEntry = entries.find(entry => areVersionKeysEquivalent(entry.version, previousVersion));
-  return previousEntry && !selectedEntries.some(entry => areVersionKeysEquivalent(entry.version, previousEntry.version))
-    ? [...selectedEntries, previousEntry]
-    : selectedEntries;
+  const entries = dedupeLatestReleaseEntries([...LOCAL_CURRENT_RELEASE_FALLBACK, ...releaseHistory]);
+  return entries.filter(entry => isVersionInUpgradeRange(entry.version, null, currentVersion));
 }
 
 export function createInitialReleaseHistoryState(previousVersion: string, currentVersion = QOLBOX_VERSION): QolboxReleaseHistoryState {
