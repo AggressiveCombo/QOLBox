@@ -86,20 +86,8 @@ const ADVANCED_TIMING_KEYS: readonly AdvancedSettingKey[] = [
 const GREASYFORK_ICON_DATA_URI =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH3ggEBCQHM3fXsAAAAVdJREFUOMudkz2qwkAUhc/goBaGJBgUtBCZyj0ILkpwAW7Bws4yO3AHLiCtEFD8KVREkoiFxZzX5A2KGfN4F04zMN+ce+5c4LMUgDmANYBnrnV+plBSi+FwyHq9TgA2LQpvCiEiABwMBtzv95RSfoNEHy8DYBzHrNVqVEr9BWKcqNFoxF6vx3a7zc1mYyC73a4MogBg7vs+z+czO50OW60Wt9stK5UKp9Mpj8cjq9WqDTBHnjAdxzGQZrPJw+HA31oulzbAWgLoA0CWZVBKIY5jzGYzdLtdE9DlcrFNrY98zobqOA6TJKHW2jg4nU5sNBpFDp6mhVe5rsvVasUwDHm9Xqm15u12o+/7Hy0gD8KatOd5vN/v1FozTVN6nkchxFuI6hsAAIMg4OPxMJCXdtTbR7JJCMEgCJhlGUlyPB4XfumozInrupxMJpRSRtZlKoNYl+m/6/wDuWAjtPfsQuwAAAAASUVORK5CYII=';
 
-function getCheckedText(enabled: boolean): string {
-  return enabled ? 'Enabled' : 'Off';
-}
-
 function getAdvancedSettingDefinition(key: AdvancedSettingKey): AdvancedSettingDefinition {
   return ADVANCED_SETTING_DEFINITIONS.find(definition => definition.key === key) as AdvancedSettingDefinition;
-}
-
-function getAdvancedSettingValueText(definition: AdvancedSettingDefinition, value: unknown): string {
-  if (definition.kind === 'boolean') {
-    return value === true || value === 'true' ? 'Enabled' : 'Off';
-  }
-
-  return `${value}${definition.unit ? ` ${definition.unit}` : ''}`;
 }
 
 function getFeatureDefinition(
@@ -123,14 +111,14 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
         type: 'intro',
         title: 'Welcome to QOLBox',
         text:
-          `${options.versionLabel} adds fullscreen layout, full-lobby reserves, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, map import/export, and setup controls. Choose Express for the recommended setup or Custom to decide feature by feature.`,
+          'QOLBox is a hitbox.io userscript with fullscreen layout, reserve spots in full lobbies, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, and map import/export.',
       },
       ...featureSteps,
       {
         type: 'finish',
         title: 'QOLBox is ready',
         text:
-          `On desktop, press ${options.menuKeyLabel} to open QOLBox later. On mobile, open the site's hamburger dropdown and choose QOLBox. The menu lets you change features, advanced defaults, and setup choices at any time.`,
+          `On desktop, press ${options.menuKeyLabel} to open QOLBox later. On mobile, open the site's hamburger dropdown and choose QOLBox. You can change features and advanced settings there any time.`,
       },
     ];
   }
@@ -184,7 +172,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
 
     return `
       <div class="qolboxMenuInfoBox">
-        <div class="qolboxMenuFeatureName">Selected setup</div>
+        <div class="qolboxMenuFeatureName">Enabled features</div>
         <div class="qolboxMenuFeatureSummary">${escapeMenuText(enabledFeatures || 'No optional features enabled')}</div>
       </div>
     `;
@@ -256,7 +244,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
       <div class="qolboxMenuFeatureRow">
         <div>
           <div class="qolboxMenuFeatureName">${escapeMenuText(feature.title)}</div>
-          <div class="qolboxMenuFeatureSummary">${escapeMenuText(feature.summary)} Current draft: ${escapeMenuText(getCheckedText(draft.features[feature.key] !== false))}</div>
+          <div class="qolboxMenuFeatureSummary">${escapeMenuText(feature.summary)}</div>
         </div>
         ${getDraftFeatureToggleMarkup(feature.key, draft)}
       </div>
@@ -295,13 +283,12 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     errors: QolboxSettingsValidationErrors
   ): string {
     const definition = getAdvancedSettingDefinition(key);
-    const value = draft.advanced[definition.key];
     const rowKindClass = definition.kind === 'boolean' ? ' boolean' : ' numeric';
     return `
       <div class="qolboxMenuFeatureRow compact${rowKindClass}">
         <div>
           <div class="qolboxMenuFeatureName">${escapeMenuText(definition.title)}</div>
-          <div class="qolboxMenuFeatureSummary">${escapeMenuText(definition.description)} Current draft: ${escapeMenuText(getAdvancedSettingValueText(definition, value))}</div>
+          <div class="qolboxMenuFeatureSummary">${escapeMenuText(definition.description)}</div>
         </div>
         <div class="qolboxMenuFieldControl">
           ${getAdvancedInputMarkup(definition, draft, errors)}
@@ -331,7 +318,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
         ${getAdvancedRowMarkup(ADVANCED_COMMAND_ALIASES, draft, errors)}
         ${getAdvancedRowMarkup(ADVANCED_BLACKLIST_ENFORCEMENT, draft, errors)}
       </div>
-      <div class="qolboxMenuInfoBox">Group targets: all, playing, spectators. Quote those words to target a player with that exact name. Native /kick and /ban accept exact or unique partial player names. Use /blacklist to manage exact-name automatic host bans.</div>
+      <div class="qolboxMenuInfoBox">Special targets: /spec all|playing, /join all|spectators, and /red or /blue all|playing|spectators. Quote those words to use them as player names. Named targets for /spec, /join, /red, /blue, /host, /kick, and /ban accept exact or unique partial names. /blacklist stores exact names for host bans.</div>
       <div class="qolboxMenuActions slim">
         <button class="qolboxMenuButton" data-qolbox-action="reset-page">Reset Commands</button>
       </div>
@@ -343,7 +330,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
       <div class="qolboxMenuSettingsList">
         ${getFeatureRowMarkup(FEATURE_AUDIO, draft)}
       </div>
-      <div class="qolboxMenuInfoBox">Game and jukebox volume levels are still adjusted from Hitbox's native hamburger menu.</div>
+      <div class="qolboxMenuInfoBox">Adjust game and jukebox volume from Hitbox's hamburger menu.</div>
       <div class="qolboxMenuActions slim">
         <button class="qolboxMenuButton" data-qolbox-action="reset-page">Reset Audio</button>
       </div>
@@ -355,7 +342,6 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     errors: QolboxSettingsValidationErrors
   ): string {
     return `
-      <p class="qolboxMenuText">Timing and behavior defaults. These are staged here and saved together with OK.</p>
       <div class="qolboxMenuSettingsList">
         ${ADVANCED_TIMING_KEYS.map(key => getAdvancedRowMarkup(key, draft, errors)).join('')}
       </div>
@@ -384,7 +370,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     return `
       <div class="qolboxMenuInfoBox">
         <div class="qolboxMenuFeatureName">QOLBox ${escapeMenuText(options.versionLabel)}</div>
-        <div class="qolboxMenuFeatureSummary">Fullscreen layout, reserve spots, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, map import/export, and setup options for hitbox.io.</div>
+        <div class="qolboxMenuFeatureSummary">Fullscreen layout, reserve spots, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, and map import/export for hitbox.io.</div>
       </div>
       ${getCreditsMarkup()}
     `;
@@ -441,10 +427,10 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
       case 'github':
         return 'GitHub release';
       case 'greasyfork':
-        return 'GreasyFork version history';
+        return 'GreasyFork history';
       case 'local-fallback':
       default:
-        return 'Bundled fallback';
+        return '';
     }
   }
 
@@ -455,6 +441,17 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
 
     const timestamp = Date.parse(release.publishedAt);
     return Number.isFinite(timestamp) ? ` - ${new Date(timestamp).toLocaleDateString()}` : '';
+  }
+
+  function getUpdateRangeMarkup(notice: PendingUpdateNotice): string {
+    return `
+      <div class="qolboxMenuUpdateRange" aria-label="Updated from ${escapeMenuText(notice.previousVersion)} to ${escapeMenuText(notice.currentVersion)}">
+        <span class="qolboxMenuUpdateLabel">Updated</span>
+        <span class="qolboxMenuVersionPill old">${escapeMenuText(notice.previousVersion)}</span>
+        <span class="qolboxMenuVersionArrow" aria-hidden="true">&rarr;</span>
+        <span class="qolboxMenuVersionPill current">${escapeMenuText(notice.currentVersion)}</span>
+      </div>
+    `;
   }
 
   function getUpdateNoticeMarkup(
@@ -468,10 +465,10 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
           <div class="qolboxMenuHeaderLine">
             <h1 class="qolboxMenuTitle">QOLBox Updated</h1>
           </div>
-          <p class="qolboxMenuText">Updated from ${escapeMenuText(notice.previousVersion)} to ${escapeMenuText(notice.currentVersion)}.</p>
+          ${getUpdateRangeMarkup(notice)}
           <div class="qolboxMenuLoading" role="status" aria-live="polite">
             <span class="qolboxMenuSpinner" aria-hidden="true"></span>
-            <span>Loading release notes from GitHub and GreasyFork...</span>
+            <span>Loading update notes from GitHub and GreasyFork...</span>
           </div>
         </div>
       `;
@@ -480,30 +477,33 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     const releaseNotes = releaseHistory.notes;
     const safePageIndex = Math.max(0, Math.min(pageIndex, Math.max(0, releaseNotes.length - 1)));
     const release = releaseNotes[safePageIndex] || null;
+    const releaseSourceText = release
+      ? `${getReleaseSourceText(release)}${getReleaseDateText(release)}`.trim()
+      : '';
     const notes = release
       ? `
           <div class="qolboxMenuInfoBox">
             <div class="qolboxMenuFeatureName">${escapeMenuText(release.version)}</div>
-            <div class="qolboxMenuFeatureSummary">${escapeMenuText(getReleaseSourceText(release))}${escapeMenuText(getReleaseDateText(release))}</div>
+            ${releaseSourceText ? `<div class="qolboxMenuFeatureSummary">${escapeMenuText(releaseSourceText)}</div>` : ''}
             <ul class="qolboxMenuNoteList">
               ${release.notes.map(note => `<li>${escapeMenuText(note)}</li>`).join('')}
             </ul>
           </div>
         `
-      : '<p class="qolboxMenuText">No version-history entries are available for this upgrade range.</p>';
+      : '<p class="qolboxMenuText">No update notes are available for this version range.</p>';
     const pageCount = Math.max(1, releaseNotes.length);
+    const chronologicalPageNumber = releaseNotes.length ? pageCount - safePageIndex : 0;
 
     return `
       <div class="qolboxMenuBody">
         <div class="qolboxMenuHeaderLine">
           <h1 class="qolboxMenuTitle">QOLBox Updated</h1>
         </div>
-        <p class="qolboxMenuText">Updated from ${escapeMenuText(notice.previousVersion)} to ${escapeMenuText(notice.currentVersion)}.</p>
-        <p class="qolboxMenuText">${escapeMenuText(releaseHistory.message)} Source: ${escapeMenuText(releaseHistory.sourceLabel)}.</p>
+        ${getUpdateRangeMarkup(notice)}
         ${notes}
         <div class="qolboxMenuHeaderLine">
           <button class="qolboxMenuButton" data-qolbox-action="update-older" ${safePageIndex >= releaseNotes.length - 1 ? 'disabled' : ''}>Older</button>
-          <span class="qolboxMenuFeatureSummary">Version ${releaseNotes.length ? safePageIndex + 1 : 0} of ${pageCount}</span>
+          <span class="qolboxMenuFeatureSummary">Version ${chronologicalPageNumber} of ${pageCount}</span>
           <button class="qolboxMenuButton" data-qolbox-action="update-newer" ${safePageIndex <= 0 ? 'disabled' : ''}>Newer</button>
         </div>
         <div class="qolboxMenuActions">

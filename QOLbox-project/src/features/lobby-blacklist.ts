@@ -170,10 +170,10 @@ export function createLobbyBlacklistController(options: LobbyBlacklistOptions) {
       attemptedPlayers.add(attemptKey);
       if (banPlayer(session, id)) {
         banned += 1;
-        options.showStatus(`Automatically banned blacklisted player ${playerName || 'Player'}.`, session);
+        options.showStatus(`Banned blacklisted player ${playerName || 'Player'}.`, session);
       } else {
         attemptedPlayers.delete(attemptKey);
-        options.showStatus(`Could not automatically ban blacklisted player ${playerName || 'Player'}.`, session);
+        options.showStatus(`Could not ban blacklisted player ${playerName || 'Player'}.`, session);
       }
     }
 
@@ -238,7 +238,7 @@ export function createLobbyBlacklistController(options: LobbyBlacklistOptions) {
     saveNames([...blacklistNames, exactName]);
     options.showStatus(`Added ${exactName} to the blacklist.`);
     if (!options.isEnforcementEnabled()) {
-      options.showStatus('Automatic blacklist enforcement is currently off.');
+      options.showStatus('Automatic blacklist is off.');
     } else if (!isHostSession()) {
       options.showStatus('Automatic bans will apply when you are host.');
     }
@@ -282,12 +282,12 @@ export function createLobbyBlacklistController(options: LobbyBlacklistOptions) {
 
   function setBlacklistEnforcement(enabled: boolean): boolean {
     if (options.isEnforcementEnabled() === enabled) {
-      options.showStatus(`Automatic blacklist enforcement is already ${enabled ? 'on' : 'off'}.`);
+      options.showStatus(`Automatic blacklist is already ${enabled ? 'on' : 'off'}.`);
       return true;
     }
 
     options.setEnforcementEnabled(enabled);
-    options.showStatus(`Automatic blacklist enforcement is now ${enabled ? 'on' : 'off'}.`);
+    options.showStatus(`Automatic blacklist is now ${enabled ? 'on' : 'off'}.`);
     if (enabled) {
       patchLobbyBlacklist();
     }

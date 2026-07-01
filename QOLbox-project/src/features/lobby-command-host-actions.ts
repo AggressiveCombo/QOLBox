@@ -28,7 +28,7 @@ export function createLobbyCommandHostActions(dependencies: LobbyCommandHostActi
     }
 
     if (!isHostSession(session)) {
-      dependencies.showStatus('Only the host can give host to another player.');
+      dependencies.showStatus('Only the host can transfer host to another player.');
       return false;
     }
 

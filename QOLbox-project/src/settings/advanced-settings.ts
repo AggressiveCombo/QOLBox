@@ -80,7 +80,7 @@ export const ADVANCED_SETTING_DEFINITIONS: readonly AdvancedSettingDefinition[] 
     key: ADVANCED_BLACKLIST_ENFORCEMENT,
     kind: 'boolean',
     title: 'Automatic blacklist',
-    description: 'Automatically ban exact-name blacklist matches while you are host.',
+    description: 'Ban exact-name blacklist matches while you are host.',
     defaultValue: true,
   },
   {
@@ -109,7 +109,7 @@ export const ADVANCED_SETTING_DEFINITIONS: readonly AdvancedSettingDefinition[] 
     key: ADVANCED_TYPING_DURATION_MS,
     kind: 'number',
     title: 'Typing indicator duration',
-    description: 'How long remote typing pulses remain visible.',
+    description: 'How long typing indicators stay visible.',
     defaultValue: TYPING_INDICATOR_TIMEOUT_MS,
     min: 500,
     max: 5000,

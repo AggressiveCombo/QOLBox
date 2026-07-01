@@ -57,7 +57,7 @@ export function createLobbyCommandDispatcher(dependencies: CommandDispatcherDepe
     }
 
     if (!canEndMatch(session)) {
-      dependencies.showStatus('The native end-game action is unavailable.');
+      dependencies.showStatus("The game's end-game action is unavailable.");
       return false;
     }
 
@@ -80,7 +80,7 @@ export function createLobbyCommandDispatcher(dependencies: CommandDispatcherDepe
     }
 
     if (!canEndMatch(session) || !canStartMatch(session)) {
-      dependencies.showStatus('The native restart actions are unavailable.');
+      dependencies.showStatus("The game's restart actions are unavailable.");
       return false;
     }
 
@@ -108,7 +108,7 @@ export function createLobbyCommandDispatcher(dependencies: CommandDispatcherDepe
     }
 
     if (!canStartMatch(session)) {
-      dependencies.showStatus('The native start-game action is unavailable.');
+      dependencies.showStatus("The game's start-game action is unavailable.");
       return false;
     }
 

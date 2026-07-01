@@ -2,7 +2,7 @@
 // @name         QOLBox
 // @namespace    Violentmonkey Scripts
 // @author       gpt-5.4 and gpt-5.5
-// @version      2.1.0
+// @version      2.1.1
 // @description  Fullscreen hitbox.io, reserve spots, away-tab alerts, audio controls, mobile Grab, readable chat, lobby commands, map import/export, and first-start setup for hitbox.io.
 // @license      ISC
 // @match        https://hitbox.io/
@@ -18,7 +18,7 @@
 "use strict";
 (() => {
   // src/config/qolbox-constants.ts
-  var DESKTOP_LOBBY_CHAT_PROMPT = "Press enter to send a message";
+  var DESKTOP_LOBBY_CHAT_PROMPT = "Press Enter to send a message";
   var TOUCH_LOBBY_CHAT_PROMPT = "Tap here to send a message";
   var MENU_KEY_LABEL = "F8";
   var MENU_KEY = "F8";
@@ -364,7 +364,7 @@
       key: ADVANCED_BLACKLIST_ENFORCEMENT,
       kind: "boolean",
       title: "Automatic blacklist",
-      description: "Automatically ban exact-name blacklist matches while you are host.",
+      description: "Ban exact-name blacklist matches while you are host.",
       defaultValue: true
     },
     {
@@ -393,7 +393,7 @@
       key: ADVANCED_TYPING_DURATION_MS,
       kind: "number",
       title: "Typing indicator duration",
-      description: "How long remote typing pulses remain visible.",
+      description: "How long typing indicators stay visible.",
       defaultValue: TYPING_INDICATOR_TIMEOUT_MS,
       min: 500,
       max: 5e3,
@@ -554,13 +554,13 @@
       key: FEATURE_RESERVE,
       title: "Reserve Spots",
       shortTitle: "Reserve",
-      summary: "Wait for a spot in full custom lobbies instead of immediately giving up on room_full."
+      summary: "Wait for a spot in full custom lobbies instead of stopping at the full-room message."
     },
     {
       key: FEATURE_CHAT,
       title: "Chat Improvements",
       shortTitle: "Chat",
-      summary: "Press Esc to discard drafts, keep readable game chat scrollable, and show remote typing indicators."
+      summary: "Press Esc to discard chat drafts, keep game chat readable, and show typing indicators."
     },
     {
       key: FEATURE_GAME_START_ALERT,
@@ -578,14 +578,14 @@
       key: FEATURE_LOBBY_COMMANDS,
       title: "Lobby Commands",
       shortTitle: "Commands",
-      summary: "Add practical lobby controls, bulk player targets, and the complete host-settings listing.",
-      onboardingText: "Use /spec, /join, /red, /blue, /switch, /lock, /unlock, /host, /start, /end, /restart, and /blacklist. /rec is shorthand for /record, and /r is shorthand for /restart. Use all, playing, or spectators for group targets, /settings all for every host setting, and exact or unique partial names with native /kick and /ban."
+      summary: "Add lobby controls, special player targets, and access to normal and hidden host settings.",
+      onboardingText: "Use /spec, /join, /red, /blue, /switch, /lock, /unlock, /host, /start, /end, /restart, /settings all, and /blacklist. Special targets: /spec all|playing, /join all|spectators, and /red or /blue all|playing|spectators. Named targets for /spec, /join, /red, /blue, /host, /kick, and /ban accept exact or unique partial player names. /blacklist stores exact names only."
     },
     {
       key: FEATURE_EDITOR_MAP_TRANSFER,
       title: "Map Import and Export",
       shortTitle: "Map Files",
-      summary: "Add local Import and Export items to the editor File menu for saving map files on your computer."
+      summary: "Add Import and Export to the editor File menu for saving map files on your computer."
     }
   ];
   var DEFAULT_FEATURE_SETTINGS = {
@@ -6862,7 +6862,7 @@
         return "blue";
       case TEAM_STATE_FFA:
       default:
-        return "FFA";
+        return "playing";
     }
   }
   function getBulkTeamActionName(team) {
@@ -6875,6 +6875,9 @@
     return `move to ${getTeamStateName(team)}`;
   }
   function formatBulkTeamMoveMessage(moved, team) {
+    if (team === TEAM_STATE_FFA) {
+      return `Moving ${moved} eligible player${moved === 1 ? "" : "s"} into play.`;
+    }
     return `Moving ${moved} eligible player${moved === 1 ? "" : "s"} to ${getTeamStateName(team)}.`;
   }
 
@@ -7039,7 +7042,7 @@
         return true;
       }
       if (!setTeamsLocked(session, locked)) {
-        dependencies.showStatus("Could not send the team-lock command.");
+        dependencies.showStatus("Could not send the team lock/unlock command.");
         return false;
       }
       return true;
@@ -7089,7 +7092,7 @@
         return false;
       }
       if (!isHostSession(session)) {
-        dependencies.showStatus("Only the host can give host to another player.");
+        dependencies.showStatus("Only the host can transfer host to another player.");
         return false;
       }
       const target = dependencies.resolveNamedCommandPlayer(argument, session);
@@ -7176,18 +7179,18 @@
   function getQolboxCommandHelpLines() {
     return [
       "QOLBox commands:",
-      "/spec -- spectate yourself",
-      "/spec playername -- spectate a player",
-      "/spec all|playing|spectators -- spectate a group",
-      "/join -- join play yourself (non-team modes)",
-      "/join playername -- join a player (non-team modes)",
-      "/join all|playing|spectators -- join a group (non-team modes)",
-      "/red -- join red yourself (team modes)",
+      "/spec -- move yourself to spectators",
+      "/spec playername -- move a player to spectators",
+      "/spec all|playing -- move active players to spectators",
+      "/join -- move yourself into play (non-team modes)",
+      "/join playername -- move a player into play (non-team modes)",
+      "/join all|spectators -- move spectators into play (non-team modes)",
+      "/red -- move yourself to red (team modes)",
       "/red playername -- move a player to red (team modes)",
-      "/red all|playing|spectators -- move a group to red (team modes)",
-      "/blue -- join blue yourself (team modes)",
+      "/red all|playing|spectators -- move players to red (team modes)",
+      "/blue -- move yourself to blue (team modes)",
       "/blue playername -- move a player to blue (team modes)",
-      "/blue all|playing|spectators -- move a group to blue (team modes)",
+      "/blue all|playing|spectators -- move players to blue (team modes)",
       "/switch -- swap red and blue teams",
       "/lock -- lock team switching",
       "/unlock -- unlock team switching",
@@ -7204,8 +7207,9 @@
       ...areAdvancedCommandAliasesEnabled() ? ["/rec -- same as /record"] : [],
       "/settings -- view normal gameplay settings",
       "/settings all -- view normal and hidden gameplay settings",
-      "Native /kick and /ban accept exact or unique partial player names.",
-      'Tip: to target players named all, playing, or spectators, quote the name: /spec "all".'
+      "Named targets for /spec, /join, /red, /blue, /host, /kick, and /ban accept exact or unique partial player names.",
+      'Tip: all, playing, and spectators are special targets where shown above. Quote them to use them as player names: /spec "all".',
+      'Tip: quote blacklist names like "clear", "on", or "off" to add those exact names.'
     ];
   }
   function writeQolboxCommandHelp(session) {
@@ -7392,7 +7396,7 @@
         return false;
       }
       if (!canEndMatch(session)) {
-        dependencies.showStatus("The native end-game action is unavailable.");
+        dependencies.showStatus("The game's end-game action is unavailable.");
         return false;
       }
       clearHandledChatDraft();
@@ -7410,7 +7414,7 @@
         return false;
       }
       if (!canEndMatch(session) || !canStartMatch(session)) {
-        dependencies.showStatus("The native restart actions are unavailable.");
+        dependencies.showStatus("The game's restart actions are unavailable.");
         return false;
       }
       if (dependencies.areGameStartAlertsEnabled()) {
@@ -7433,7 +7437,7 @@
         return false;
       }
       if (!canStartMatch(session)) {
-        dependencies.showStatus("The native start-game action is unavailable.");
+        dependencies.showStatus("The game's start-game action is unavailable.");
         return false;
       }
       if (dependencies.areGameStartAlertsEnabled()) {
@@ -7701,10 +7705,10 @@
         attemptedPlayers.add(attemptKey);
         if (banPlayer(session, id)) {
           banned += 1;
-          options.showStatus(`Automatically banned blacklisted player ${playerName || "Player"}.`, session);
+          options.showStatus(`Banned blacklisted player ${playerName || "Player"}.`, session);
         } else {
           attemptedPlayers.delete(attemptKey);
-          options.showStatus(`Could not automatically ban blacklisted player ${playerName || "Player"}.`, session);
+          options.showStatus(`Could not ban blacklisted player ${playerName || "Player"}.`, session);
         }
       }
       return banned;
@@ -7757,7 +7761,7 @@
       saveNames([...blacklistNames, exactName]);
       options.showStatus(`Added ${exactName} to the blacklist.`);
       if (!options.isEnforcementEnabled()) {
-        options.showStatus("Automatic blacklist enforcement is currently off.");
+        options.showStatus("Automatic blacklist is off.");
       } else if (!isHostSession()) {
         options.showStatus("Automatic bans will apply when you are host.");
       }
@@ -7794,11 +7798,11 @@
     }
     function setBlacklistEnforcement(enabled) {
       if (options.isEnforcementEnabled() === enabled) {
-        options.showStatus(`Automatic blacklist enforcement is already ${enabled ? "on" : "off"}.`);
+        options.showStatus(`Automatic blacklist is already ${enabled ? "on" : "off"}.`);
         return true;
       }
       options.setEnforcementEnabled(enabled);
-      options.showStatus(`Automatic blacklist enforcement is now ${enabled ? "on" : "off"}.`);
+      options.showStatus(`Automatic blacklist is now ${enabled ? "on" : "off"}.`);
       if (enabled) {
         patchLobbyBlacklist();
       }
@@ -8709,20 +8713,26 @@
   }
 
   // src/config/qolbox-version.ts
-  var QOLBOX_VERSION = "2.1.0";
+  var QOLBOX_VERSION = "2.1.1";
   var QOLBOX_VERSION_LABEL = `v${QOLBOX_VERSION}`;
   var QOLBOX_GREASYFORK_URL = "https://greasyfork.org/en/scripts/568667-qolbox";
   var QOLBOX_GITHUB_URL = "https://github.com/AggressiveCombo/QOLBox";
 
   // src/config/qolbox-release-notes.ts
-  var GREASYFORK_VERSIONS_URL = "https://greasyfork.org/en/scripts/568667-qolbox/versions.json";
+  var GREASYFORK_HISTORY_URL = "https://greasyfork.org/en/scripts/568667-qolbox/versions?show_all_versions=1";
   var GITHUB_RELEASES_URL = "https://api.github.com/repos/AggressiveCombo/QOLBox/releases?per_page=100";
-  var RELEASE_HISTORY_CACHE_KEY = "vm.hitbox.qolboxReleaseHistory.v1";
+  var RELEASE_HISTORY_CACHE_KEY = "vm.hitbox.qolboxReleaseHistory.v2";
   var RELEASE_HISTORY_CACHE_TTL_MS = 12 * 60 * 60 * 1e3;
   var RELEASE_HISTORY_FETCH_TIMEOUT_MS = 7e3;
   var LOCAL_CURRENT_RELEASE_FALLBACK_NOTES = [
-    "Public release notes could not be loaded for this version.",
-    "Check GitHub releases or GreasyFork version history for the full changelog when available."
+    "No public update notes were found for this version."
+  ];
+  var GREASYFORK_EMPTY_HISTORY_NOTES = [
+    "No public update notes were posted for this version."
+  ];
+  var INITIAL_RELEASE_NOTES = [
+    "Initial release.",
+    "Persisted Hitbox game and jukebox volume, with wheel controls and jukebox mute."
   ];
   var LOCAL_CURRENT_RELEASE_FALLBACK = [
     {
@@ -8842,10 +8852,17 @@
         return 1;
     }
   }
+  function hasReleaseHistoryText(entry) {
+    return !entry.notes.every((note) => GREASYFORK_EMPTY_HISTORY_NOTES.includes(note));
+  }
   function shouldReplaceReleaseEntry(next, current) {
     const sourcePriorityDelta = getSourcePriority(next.source) - getSourcePriority(current.source);
     if (sourcePriorityDelta) {
       return sourcePriorityDelta > 0;
+    }
+    const noteQualityDelta = Number(hasReleaseHistoryText(next)) - Number(hasReleaseHistoryText(current));
+    if (noteQualityDelta) {
+      return noteQualityDelta > 0;
     }
     const timestampDelta = getReleaseTimestamp(next) - getReleaseTimestamp(current);
     if (timestampDelta) {
@@ -8910,20 +8927,6 @@
       };
     }).filter((entry) => entry.version && entry.notes.length);
   }
-  function parseGreasyForkDetailEntry(record, fallback) {
-    const version = normalizeVersionKey(record.version || fallback.version);
-    if (!version) {
-      return null;
-    }
-    const description = typeof record.description === "string" ? cleanReleaseText(record.description) : "";
-    return {
-      version,
-      source: "greasyfork",
-      publishedAt: typeof record.code_updated_at === "string" ? record.code_updated_at : typeof fallback.created_at === "string" ? fallback.created_at : void 0,
-      url: typeof record.url === "string" ? record.url : void 0,
-      notes: description ? [description] : [`Published on GreasyFork as QOLBox ${version}.`]
-    };
-  }
   async function fetchJson(url, headers = {}) {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), RELEASE_HISTORY_FETCH_TIMEOUT_MS);
@@ -8943,25 +8946,55 @@
       window.clearTimeout(timer);
     }
   }
+  async function fetchText(url, headers = {}) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), RELEASE_HISTORY_FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: "text/html",
+          ...headers
+        },
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return await response.text();
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
   async function fetchGitHubReleaseEntries() {
     return parseGitHubReleaseEntries(await fetchJson(GITHUB_RELEASES_URL));
   }
-  async function fetchGreasyForkReleaseEntries() {
-    const rawVersions = await fetchJson(GREASYFORK_VERSIONS_URL);
-    if (!Array.isArray(rawVersions)) {
-      return [];
+  function getGreasyForkHistoryNotes(version, changelogElement) {
+    if (!changelogElement) {
+      return version === "1.0.0" ? INITIAL_RELEASE_NOTES : GREASYFORK_EMPTY_HISTORY_NOTES;
     }
-    const versions = rawVersions.filter((record) => isRecord5(record));
-    const detailResults = await Promise.allSettled(
-      versions.map(async (versionRecord) => {
-        if (typeof versionRecord.url !== "string") {
-          return null;
-        }
-        const detail = await fetchJson(versionRecord.url);
-        return isRecord5(detail) ? parseGreasyForkDetailEntry(detail, versionRecord) : null;
-      })
-    );
-    return detailResults.filter((result) => result.status === "fulfilled").map((result) => result.value).filter((entry) => Boolean(entry));
+    const notes = Array.from(changelogElement.querySelectorAll("li, p")).map((element) => cleanReleaseText(element.textContent || "")).filter(Boolean);
+    return notes.length ? notes : GREASYFORK_EMPTY_HISTORY_NOTES;
+  }
+  function parseGreasyForkHistoryEntries(html) {
+    const document2 = new DOMParser().parseFromString(html, "text/html");
+    return Array.from(document2.querySelectorAll(".history_versions > li")).map((item) => {
+      const versionLink = item.querySelector(".version-number a");
+      const version = normalizeVersionKey(versionLink?.textContent);
+      if (!version) {
+        return null;
+      }
+      const href = versionLink?.getAttribute("href") || "";
+      return {
+        version,
+        source: "greasyfork",
+        publishedAt: item.querySelector("relative-time")?.getAttribute("datetime") || void 0,
+        url: href ? new URL(href, GREASYFORK_HISTORY_URL).href : void 0,
+        notes: getGreasyForkHistoryNotes(version, item.querySelector(".version-changelog"))
+      };
+    }).filter((entry) => Boolean(entry));
+  }
+  async function fetchGreasyForkReleaseEntries() {
+    return parseGreasyForkHistoryEntries(await fetchText(GREASYFORK_HISTORY_URL));
   }
   function safeGetLocalStorage(key) {
     try {
@@ -9032,54 +9065,11 @@
   function getReleaseNotesBetween(previousVersion, currentVersion = QOLBOX_VERSION, releaseHistory = LOCAL_CURRENT_RELEASE_FALLBACK) {
     const entries = dedupeLatestReleaseEntries(releaseHistory);
     const selectedEntries = entries.filter((entry) => isVersionInUpgradeRange(entry.version, previousVersion, currentVersion));
-    if (selectedEntries.length > 1 || !previousVersion) {
+    if (!previousVersion) {
       return selectedEntries;
     }
     const previousEntry = entries.find((entry) => areVersionKeysEquivalent(entry.version, previousVersion));
     return previousEntry && !selectedEntries.some((entry) => areVersionKeysEquivalent(entry.version, previousEntry.version)) ? [...selectedEntries, previousEntry] : selectedEntries;
-  }
-  function getReleaseHistorySourceLabel(notes) {
-    const sources = new Set(notes.map((note) => note.source));
-    const hasFallback = sources.has("local-fallback");
-    const hasGitHub = sources.has("github");
-    const hasGreasyFork = sources.has("greasyfork");
-    let remoteLabel = "";
-    if (hasGitHub && hasGreasyFork) {
-      remoteLabel = "GitHub releases and GreasyFork version history";
-    } else if (hasGitHub) {
-      remoteLabel = "GitHub releases";
-    } else if (hasGreasyFork) {
-      remoteLabel = "GreasyFork version history";
-    }
-    if (hasFallback && remoteLabel) {
-      return `bundled fallback notes and ${remoteLabel}`;
-    }
-    if (hasFallback) {
-      return "bundled fallback notes";
-    }
-    return remoteLabel || "release history";
-  }
-  function getLoadedReleaseHistoryMessage(notes) {
-    const hasFallback = notes.some((note) => note.source === "local-fallback");
-    const hasRemote = notes.some((note) => note.source === "github" || note.source === "greasyfork");
-    if (hasFallback && hasRemote) {
-      return "Loaded public version history where available. Showing bundled fallback messages for missing entries.";
-    }
-    if (hasFallback) {
-      return "No public notes matched this update. Showing a bundled fallback message.";
-    }
-    return "Loaded public version history.";
-  }
-  function getCachedReleaseHistoryMessage(notes) {
-    const hasFallback = notes.some((note) => note.source === "local-fallback");
-    const hasRemote = notes.some((note) => note.source === "github" || note.source === "greasyfork");
-    if (hasFallback && hasRemote) {
-      return "Loaded cached public version history where available. Showing bundled fallback messages for missing entries.";
-    }
-    if (hasFallback) {
-      return "No cached public notes matched this update. Showing a bundled fallback message.";
-    }
-    return "Loaded cached public version history.";
   }
   function createInitialReleaseHistoryState(previousVersion, currentVersion = QOLBOX_VERSION) {
     const cachedEntries = getCachedReleaseHistoryEntries();
@@ -9087,17 +9077,13 @@
       const notes2 = getReleaseNotesBetween(previousVersion, currentVersion, cachedEntries);
       return {
         status: "ready",
-        notes: notes2,
-        sourceLabel: getReleaseHistorySourceLabel(notes2),
-        message: getCachedReleaseHistoryMessage(notes2)
+        notes: notes2
       };
     }
     const notes = getReleaseNotesBetween(previousVersion, currentVersion);
     return {
       status: "loading",
-      notes,
-      sourceLabel: getReleaseHistorySourceLabel(notes),
-      message: "Loading public version history..."
+      notes
     };
   }
   async function loadReleaseHistoryState(previousVersion, currentVersion = QOLBOX_VERSION) {
@@ -9106,9 +9092,7 @@
       const notes = getReleaseNotesBetween(previousVersion, currentVersion, entries);
       return {
         status: "ready",
-        notes,
-        sourceLabel: getReleaseHistorySourceLabel(notes),
-        message: getLoadedReleaseHistoryMessage(notes)
+        notes
       };
     } catch {
       const cachedEntries = getCachedReleaseHistoryEntries(true);
@@ -9116,17 +9100,13 @@
         const notes2 = getReleaseNotesBetween(previousVersion, currentVersion, cachedEntries);
         return {
           status: "fallback",
-          notes: notes2,
-          sourceLabel: getReleaseHistorySourceLabel(notes2),
-          message: `Could not refresh public version history. ${getCachedReleaseHistoryMessage(notes2)}`
+          notes: notes2
         };
       }
       const notes = getReleaseNotesBetween(previousVersion, currentVersion);
       return {
         status: "fallback",
-        notes,
-        sourceLabel: getReleaseHistorySourceLabel(notes),
-        message: "Could not load public version history. Showing a bundled fallback message."
+        notes
       };
     }
   }
@@ -9653,17 +9633,8 @@
     ADVANCED_TYPING_DURATION_MS
   ];
   var GREASYFORK_ICON_DATA_URI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH3ggEBCQHM3fXsAAAAVdJREFUOMudkz2qwkAUhc/goBaGJBgUtBCZyj0ILkpwAW7Bws4yO3AHLiCtEFD8KVREkoiFxZzX5A2KGfN4F04zMN+ce+5c4LMUgDmANYBnrnV+plBSi+FwyHq9TgA2LQpvCiEiABwMBtzv95RSfoNEHy8DYBzHrNVqVEr9BWKcqNFoxF6vx3a7zc1mYyC73a4MogBg7vs+z+czO50OW60Wt9stK5UKp9Mpj8cjq9WqDTBHnjAdxzGQZrPJw+HA31oulzbAWgLoA0CWZVBKIY5jzGYzdLtdE9DlcrFNrY98zobqOA6TJKHW2jg4nU5sNBpFDp6mhVe5rsvVasUwDHm9Xqm15u12o+/7Hy0gD8KatOd5vN/v1FozTVN6nkchxFuI6hsAAIMg4OPxMJCXdtTbR7JJCMEgCJhlGUlyPB4XfumozInrupxMJpRSRtZlKoNYl+m/6/wDuWAjtPfsQuwAAAAASUVORK5CYII=";
-  function getCheckedText(enabled) {
-    return enabled ? "Enabled" : "Off";
-  }
   function getAdvancedSettingDefinition2(key) {
     return ADVANCED_SETTING_DEFINITIONS.find((definition) => definition.key === key);
-  }
-  function getAdvancedSettingValueText(definition, value) {
-    if (definition.kind === "boolean") {
-      return value === true || value === "true" ? "Enabled" : "Off";
-    }
-    return `${value}${definition.unit ? ` ${definition.unit}` : ""}`;
   }
   function getFeatureDefinition(featureDefinitions, featureKey) {
     return featureDefinitions.find((feature) => feature.key === featureKey);
@@ -9680,13 +9651,13 @@
         {
           type: "intro",
           title: "Welcome to QOLBox",
-          text: `${options.versionLabel} adds fullscreen layout, full-lobby reserves, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, map import/export, and setup controls. Choose Express for the recommended setup or Custom to decide feature by feature.`
+          text: "QOLBox is a hitbox.io userscript with fullscreen layout, reserve spots in full lobbies, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, and map import/export."
         },
         ...featureSteps,
         {
           type: "finish",
           title: "QOLBox is ready",
-          text: `On desktop, press ${options.menuKeyLabel} to open QOLBox later. On mobile, open the site's hamburger dropdown and choose QOLBox. The menu lets you change features, advanced defaults, and setup choices at any time.`
+          text: `On desktop, press ${options.menuKeyLabel} to open QOLBox later. On mobile, open the site's hamburger dropdown and choose QOLBox. You can change features and advanced settings there any time.`
         }
       ];
     }
@@ -9726,7 +9697,7 @@
       const enabledFeatures = options.featureDefinitions.filter((feature) => options.isFeatureEnabled(feature.key)).map((feature) => feature.shortTitle).join(", ");
       return `
       <div class="qolboxMenuInfoBox">
-        <div class="qolboxMenuFeatureName">Selected setup</div>
+        <div class="qolboxMenuFeatureName">Enabled features</div>
         <div class="qolboxMenuFeatureSummary">${escapeMenuText(enabledFeatures || "No optional features enabled")}</div>
       </div>
     `;
@@ -9791,7 +9762,7 @@
       <div class="qolboxMenuFeatureRow">
         <div>
           <div class="qolboxMenuFeatureName">${escapeMenuText(feature.title)}</div>
-          <div class="qolboxMenuFeatureSummary">${escapeMenuText(feature.summary)} Current draft: ${escapeMenuText(getCheckedText(draft.features[feature.key] !== false))}</div>
+          <div class="qolboxMenuFeatureSummary">${escapeMenuText(feature.summary)}</div>
         </div>
         ${getDraftFeatureToggleMarkup(feature.key, draft)}
       </div>
@@ -9818,13 +9789,12 @@
     }
     function getAdvancedRowMarkup(key, draft, errors) {
       const definition = getAdvancedSettingDefinition2(key);
-      const value = draft.advanced[definition.key];
       const rowKindClass = definition.kind === "boolean" ? " boolean" : " numeric";
       return `
       <div class="qolboxMenuFeatureRow compact${rowKindClass}">
         <div>
           <div class="qolboxMenuFeatureName">${escapeMenuText(definition.title)}</div>
-          <div class="qolboxMenuFeatureSummary">${escapeMenuText(definition.description)} Current draft: ${escapeMenuText(getAdvancedSettingValueText(definition, value))}</div>
+          <div class="qolboxMenuFeatureSummary">${escapeMenuText(definition.description)}</div>
         </div>
         <div class="qolboxMenuFieldControl">
           ${getAdvancedInputMarkup(definition, draft, errors)}
@@ -9849,7 +9819,7 @@
         ${getAdvancedRowMarkup(ADVANCED_COMMAND_ALIASES, draft, errors)}
         ${getAdvancedRowMarkup(ADVANCED_BLACKLIST_ENFORCEMENT, draft, errors)}
       </div>
-      <div class="qolboxMenuInfoBox">Group targets: all, playing, spectators. Quote those words to target a player with that exact name. Native /kick and /ban accept exact or unique partial player names. Use /blacklist to manage exact-name automatic host bans.</div>
+      <div class="qolboxMenuInfoBox">Special targets: /spec all|playing, /join all|spectators, and /red or /blue all|playing|spectators. Quote those words to use them as player names. Named targets for /spec, /join, /red, /blue, /host, /kick, and /ban accept exact or unique partial names. /blacklist stores exact names for host bans.</div>
       <div class="qolboxMenuActions slim">
         <button class="qolboxMenuButton" data-qolbox-action="reset-page">Reset Commands</button>
       </div>
@@ -9860,7 +9830,7 @@
       <div class="qolboxMenuSettingsList">
         ${getFeatureRowMarkup(FEATURE_AUDIO, draft)}
       </div>
-      <div class="qolboxMenuInfoBox">Game and jukebox volume levels are still adjusted from Hitbox's native hamburger menu.</div>
+      <div class="qolboxMenuInfoBox">Adjust game and jukebox volume from Hitbox's hamburger menu.</div>
       <div class="qolboxMenuActions slim">
         <button class="qolboxMenuButton" data-qolbox-action="reset-page">Reset Audio</button>
       </div>
@@ -9868,7 +9838,6 @@
     }
     function getAdvancedPageMarkup(draft, errors) {
       return `
-      <p class="qolboxMenuText">Timing and behavior defaults. These are staged here and saved together with OK.</p>
       <div class="qolboxMenuSettingsList">
         ${ADVANCED_TIMING_KEYS2.map((key) => getAdvancedRowMarkup(key, draft, errors)).join("")}
       </div>
@@ -9895,7 +9864,7 @@
       return `
       <div class="qolboxMenuInfoBox">
         <div class="qolboxMenuFeatureName">QOLBox ${escapeMenuText(options.versionLabel)}</div>
-        <div class="qolboxMenuFeatureSummary">Fullscreen layout, reserve spots, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, map import/export, and setup options for hitbox.io.</div>
+        <div class="qolboxMenuFeatureSummary">Fullscreen layout, reserve spots, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, and map import/export for hitbox.io.</div>
       </div>
       ${getCreditsMarkup()}
     `;
@@ -9940,10 +9909,10 @@
         case "github":
           return "GitHub release";
         case "greasyfork":
-          return "GreasyFork version history";
+          return "GreasyFork history";
         case "local-fallback":
         default:
-          return "Bundled fallback";
+          return "";
       }
     }
     function getReleaseDateText(release) {
@@ -9953,6 +9922,16 @@
       const timestamp = Date.parse(release.publishedAt);
       return Number.isFinite(timestamp) ? ` - ${new Date(timestamp).toLocaleDateString()}` : "";
     }
+    function getUpdateRangeMarkup(notice) {
+      return `
+      <div class="qolboxMenuUpdateRange" aria-label="Updated from ${escapeMenuText(notice.previousVersion)} to ${escapeMenuText(notice.currentVersion)}">
+        <span class="qolboxMenuUpdateLabel">Updated</span>
+        <span class="qolboxMenuVersionPill old">${escapeMenuText(notice.previousVersion)}</span>
+        <span class="qolboxMenuVersionArrow" aria-hidden="true">&rarr;</span>
+        <span class="qolboxMenuVersionPill current">${escapeMenuText(notice.currentVersion)}</span>
+      </div>
+    `;
+    }
     function getUpdateNoticeMarkup(notice, releaseHistory, pageIndex) {
       if (releaseHistory.status === "loading") {
         return `
@@ -9960,10 +9939,10 @@
           <div class="qolboxMenuHeaderLine">
             <h1 class="qolboxMenuTitle">QOLBox Updated</h1>
           </div>
-          <p class="qolboxMenuText">Updated from ${escapeMenuText(notice.previousVersion)} to ${escapeMenuText(notice.currentVersion)}.</p>
+          ${getUpdateRangeMarkup(notice)}
           <div class="qolboxMenuLoading" role="status" aria-live="polite">
             <span class="qolboxMenuSpinner" aria-hidden="true"></span>
-            <span>Loading release notes from GitHub and GreasyFork...</span>
+            <span>Loading update notes from GitHub and GreasyFork...</span>
           </div>
         </div>
       `;
@@ -9971,27 +9950,28 @@
       const releaseNotes = releaseHistory.notes;
       const safePageIndex = Math.max(0, Math.min(pageIndex, Math.max(0, releaseNotes.length - 1)));
       const release = releaseNotes[safePageIndex] || null;
+      const releaseSourceText = release ? `${getReleaseSourceText(release)}${getReleaseDateText(release)}`.trim() : "";
       const notes = release ? `
           <div class="qolboxMenuInfoBox">
             <div class="qolboxMenuFeatureName">${escapeMenuText(release.version)}</div>
-            <div class="qolboxMenuFeatureSummary">${escapeMenuText(getReleaseSourceText(release))}${escapeMenuText(getReleaseDateText(release))}</div>
+            ${releaseSourceText ? `<div class="qolboxMenuFeatureSummary">${escapeMenuText(releaseSourceText)}</div>` : ""}
             <ul class="qolboxMenuNoteList">
               ${release.notes.map((note) => `<li>${escapeMenuText(note)}</li>`).join("")}
             </ul>
           </div>
-        ` : '<p class="qolboxMenuText">No version-history entries are available for this upgrade range.</p>';
+        ` : '<p class="qolboxMenuText">No update notes are available for this version range.</p>';
       const pageCount = Math.max(1, releaseNotes.length);
+      const chronologicalPageNumber = releaseNotes.length ? pageCount - safePageIndex : 0;
       return `
       <div class="qolboxMenuBody">
         <div class="qolboxMenuHeaderLine">
           <h1 class="qolboxMenuTitle">QOLBox Updated</h1>
         </div>
-        <p class="qolboxMenuText">Updated from ${escapeMenuText(notice.previousVersion)} to ${escapeMenuText(notice.currentVersion)}.</p>
-        <p class="qolboxMenuText">${escapeMenuText(releaseHistory.message)} Source: ${escapeMenuText(releaseHistory.sourceLabel)}.</p>
+        ${getUpdateRangeMarkup(notice)}
         ${notes}
         <div class="qolboxMenuHeaderLine">
           <button class="qolboxMenuButton" data-qolbox-action="update-older" ${safePageIndex >= releaseNotes.length - 1 ? "disabled" : ""}>Older</button>
-          <span class="qolboxMenuFeatureSummary">Version ${releaseNotes.length ? safePageIndex + 1 : 0} of ${pageCount}</span>
+          <span class="qolboxMenuFeatureSummary">Version ${chronologicalPageNumber} of ${pageCount}</span>
           <button class="qolboxMenuButton" data-qolbox-action="update-newer" ${safePageIndex <= 0 ? "disabled" : ""}>Newer</button>
         </div>
         <div class="qolboxMenuActions">
@@ -10407,6 +10387,44 @@
         margin: 0;
       }
 
+      .qolboxMenuUpdateRange {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .qolboxMenuUpdateLabel {
+        color: #c4c9d1;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 13px;
+        text-transform: uppercase;
+      }
+
+      .qolboxMenuVersionPill {
+        background: rgb(31, 34, 39);
+        border: 1px solid rgb(72, 78, 89);
+        border-radius: 3px;
+        color: #f4f4f4;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 15px;
+        padding: 4px 7px;
+      }
+
+      .qolboxMenuVersionPill.current {
+        border-color: rgba(245, 197, 66, 0.8);
+        color: #f5c542;
+      }
+
+      .qolboxMenuVersionArrow {
+        color: #c4c9d1;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 15px;
+      }
+
       .qolboxMenuProgress {
         align-items: center;
         display: flex;
@@ -10503,9 +10521,12 @@
       }
 
       .qolboxMenuTabs {
-        display: grid;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        display: flex;
+        flex-wrap: wrap;
         gap: 4px;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        justify-content: center;
+        padding-bottom: 8px;
       }
 
       .qolboxMenuTab {
@@ -10513,8 +10534,10 @@
         border: 1px solid rgb(72, 78, 89);
         border-radius: 3px;
         color: #cfd3da;
+        flex: 0 1 calc((100% - 8px) / 3);
         font-size: 11px;
         line-height: 13px;
+        min-width: 0;
         padding: 0 6px;
       }
 
@@ -10525,6 +10548,7 @@
       }
 
       .qolboxMenuPage {
+        align-content: start;
         display: grid;
         gap: 8px;
         min-height: 172px;
@@ -10731,8 +10755,8 @@
       }
 
       @media (max-width: 420px) {
-        .qolboxMenuTabs {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+        .qolboxMenuTab {
+          flex-basis: calc((100% - 4px) / 2);
         }
 
         .qolboxMenuChoiceGrid,

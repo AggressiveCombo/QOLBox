@@ -5,7 +5,7 @@ export interface RgbColor {
   red: number;
 }
 
-export const DESKTOP_LOBBY_CHAT_PROMPT = 'Press enter to send a message';
+export const DESKTOP_LOBBY_CHAT_PROMPT = 'Press Enter to send a message';
 export const TOUCH_LOBBY_CHAT_PROMPT = 'Tap here to send a message';
 export const MENU_KEY_LABEL = 'F8';
 export const MENU_KEY = 'F8';

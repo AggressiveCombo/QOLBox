@@ -10,7 +10,7 @@ export function getTeamStateName(team: number): string {
       return 'blue';
     case TEAM_STATE_FFA:
     default:
-      return 'FFA';
+      return 'playing';
   }
 }
 
@@ -27,5 +27,9 @@ export function getBulkTeamActionName(team: number): string {
 }
 
 export function formatBulkTeamMoveMessage(moved: number, team: number): string {
+  if (team === TEAM_STATE_FFA) {
+    return `Moving ${moved} eligible player${moved === 1 ? '' : 's'} into play.`;
+  }
+
   return `Moving ${moved} eligible player${moved === 1 ? '' : 's'} to ${getTeamStateName(team)}.`;
 }

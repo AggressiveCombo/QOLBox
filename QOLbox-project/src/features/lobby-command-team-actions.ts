@@ -241,7 +241,7 @@ export function createLobbyCommandTeamActions(
     }
 
     if (!requestTeamsLocked(session, locked)) {
-      dependencies.showStatus('Could not send the team-lock command.');
+      dependencies.showStatus('Could not send the team lock/unlock command.');
       return false;
     }
 

@@ -46,13 +46,13 @@ export const FEATURE_DEFINITIONS: readonly FeatureDefinition[] = [
     key: FEATURE_RESERVE,
     title: 'Reserve Spots',
     shortTitle: 'Reserve',
-    summary: 'Wait for a spot in full custom lobbies instead of immediately giving up on room_full.',
+    summary: 'Wait for a spot in full custom lobbies instead of stopping at the full-room message.',
   },
   {
     key: FEATURE_CHAT,
     title: 'Chat Improvements',
     shortTitle: 'Chat',
-    summary: 'Press Esc to discard drafts, keep readable game chat scrollable, and show remote typing indicators.',
+    summary: 'Press Esc to discard chat drafts, keep game chat readable, and show typing indicators.',
   },
   {
     key: FEATURE_GAME_START_ALERT,
@@ -70,15 +70,15 @@ export const FEATURE_DEFINITIONS: readonly FeatureDefinition[] = [
     key: FEATURE_LOBBY_COMMANDS,
     title: 'Lobby Commands',
     shortTitle: 'Commands',
-    summary: 'Add practical lobby controls, bulk player targets, and the complete host-settings listing.',
+    summary: 'Add lobby controls, special player targets, and access to normal and hidden host settings.',
     onboardingText:
-      'Use /spec, /join, /red, /blue, /switch, /lock, /unlock, /host, /start, /end, /restart, and /blacklist. /rec is shorthand for /record, and /r is shorthand for /restart. Use all, playing, or spectators for group targets, /settings all for every host setting, and exact or unique partial names with native /kick and /ban.',
+      'Use /spec, /join, /red, /blue, /switch, /lock, /unlock, /host, /start, /end, /restart, /settings all, and /blacklist. Special targets: /spec all|playing, /join all|spectators, and /red or /blue all|playing|spectators. Named targets for /spec, /join, /red, /blue, /host, /kick, and /ban accept exact or unique partial player names. /blacklist stores exact names only.',
   },
   {
     key: FEATURE_EDITOR_MAP_TRANSFER,
     title: 'Map Import and Export',
     shortTitle: 'Map Files',
-    summary: 'Add local Import and Export items to the editor File menu for saving map files on your computer.',
+    summary: 'Add Import and Export to the editor File menu for saving map files on your computer.',
   },
 ];
 

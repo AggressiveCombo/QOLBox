@@ -69,6 +69,44 @@ export function getQolboxMenuGlobalStyleText(): string {
         margin: 0;
       }
 
+      .qolboxMenuUpdateRange {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .qolboxMenuUpdateLabel {
+        color: #c4c9d1;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 13px;
+        text-transform: uppercase;
+      }
+
+      .qolboxMenuVersionPill {
+        background: rgb(31, 34, 39);
+        border: 1px solid rgb(72, 78, 89);
+        border-radius: 3px;
+        color: #f4f4f4;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 15px;
+        padding: 4px 7px;
+      }
+
+      .qolboxMenuVersionPill.current {
+        border-color: rgba(245, 197, 66, 0.8);
+        color: #f5c542;
+      }
+
+      .qolboxMenuVersionArrow {
+        color: #c4c9d1;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 15px;
+      }
+
       .qolboxMenuProgress {
         align-items: center;
         display: flex;
@@ -165,9 +203,12 @@ export function getQolboxMenuGlobalStyleText(): string {
       }
 
       .qolboxMenuTabs {
-        display: grid;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        display: flex;
+        flex-wrap: wrap;
         gap: 4px;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        justify-content: center;
+        padding-bottom: 8px;
       }
 
       .qolboxMenuTab {
@@ -175,8 +216,10 @@ export function getQolboxMenuGlobalStyleText(): string {
         border: 1px solid rgb(72, 78, 89);
         border-radius: 3px;
         color: #cfd3da;
+        flex: 0 1 calc((100% - 8px) / 3);
         font-size: 11px;
         line-height: 13px;
+        min-width: 0;
         padding: 0 6px;
       }
 
@@ -187,6 +230,7 @@ export function getQolboxMenuGlobalStyleText(): string {
       }
 
       .qolboxMenuPage {
+        align-content: start;
         display: grid;
         gap: 8px;
         min-height: 172px;
@@ -393,8 +437,8 @@ export function getQolboxMenuGlobalStyleText(): string {
       }
 
       @media (max-width: 420px) {
-        .qolboxMenuTabs {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+        .qolboxMenuTab {
+          flex-basis: calc((100% - 4px) / 2);
         }
 
         .qolboxMenuChoiceGrid,

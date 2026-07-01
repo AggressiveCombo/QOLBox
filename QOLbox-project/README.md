@@ -133,12 +133,12 @@ Source modules currently cover:
 - `src/features/reserve-retry-audio-suppression.ts`: timestamp guard for silencing repeated reserve retry sounds.
 - `src/features/reserve-retry-scheduler.ts`: reserve retry timeout scheduling, countdown refresh, success handoff, and retry count updates.
 - `src/features/reserve-room-list.ts`: reserve room-list row parsing through shared object guards, full/unavailable/password detection, and reserve button lookup.
-- `src/features/reserve-room-full-suppression.ts`: timestamp guard for suppressing late native `room_full` popups after a successful reserve join.
+- `src/features/reserve-room-full-suppression.ts`: timestamp guard for suppressing late native full-room popups after a successful reserve join.
 - `src/features/reserve-selection-state.ts`: selected reserve-room memory, room-identity recovery after list rebuilds, and remembered full/unavailable state.
 - `src/features/reserve-status-watch-timer.ts`: reserve native-status watch timeout loop and rescheduling guard.
 - `src/features/reserve-join-payload.ts`: reserve socket join-payload detection, named payload field reads through shared object guards, and retry-safe payload cloning.
 - `src/features/reserve-lifecycle.ts`: reserve state ownership, start/stop transitions, terminal/unavailable states, and successful-join handoff.
-- `src/features/reserve-connecting-state.ts`: reserve native connecting-state decisions for room_full, successful joins, room-closed, wrong-password, and retry startup.
+- `src/features/reserve-connecting-state.ts`: reserve native connecting-state decisions for full rooms, successful joins, room-closed, wrong-password, and retry startup.
 - `src/features/reserve-native-status.ts`: native connecting-window text extraction, reserve status filtering, and native popup hiding through shared DOM style guards.
 - `src/features/reserve-waiting-window.ts`: reserve waiting popup DOM creation, native status mirroring, retry countdown text, terminal-message rendering, and visibility toggling.
 - `src/features/global-style.ts`: global stylesheet assembly and injection for imported feature style sections.
@@ -191,7 +191,7 @@ Source modules currently cover:
 - `src/features/score-row-color-values.ts`: lives/score RGB parsing, color matching, and score-row background-color reads.
 - `src/features/score-row-colors.ts`: adapter-backed player/team fallback colors, row-name normalization, score-row color repair, and opacity locking.
 - `src/features/typing-feature-bundle.ts`: typing/score feature construction bundle for score-row colors, gameplay-canvas world typing positions, and typing indicator hooks.
-- `src/features/typing-expiration-tracker.ts`: remote typing pulse expiry timestamps, timeout ownership, and expiry callbacks.
+- `src/features/typing-expiration-tracker.ts`: typing-indicator expiry timestamps, timeout ownership, and expiry callbacks.
 - `src/features/typing-score-indicators.ts`: score-row typing indicator DOM matching, creation, and cleanup.
 - `src/features/typing-world-indicators.ts`: world-positioned typing-bubble DOM layer ownership, live position updates, and animation-frame follow loop.
 - `src/features/typing-indicators.ts`: local-player suppression, score/world indicator coordination, typing expiry delegation, and typing-pulse adapter coordination.

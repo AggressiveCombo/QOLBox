@@ -11,23 +11,8 @@ export interface QolboxReleaseNote {
 }
 
 export interface QolboxReleaseHistoryState {
-  message: string;
   notes: readonly QolboxReleaseNote[];
-  sourceLabel: string;
   status: 'fallback' | 'loading' | 'ready';
-}
-
-interface GreasyForkVersionRecord {
-  created_at?: unknown;
-  url?: unknown;
-  version?: unknown;
-}
-
-interface GreasyForkScriptRecord {
-  code_updated_at?: unknown;
-  description?: unknown;
-  url?: unknown;
-  version?: unknown;
 }
 
 interface GitHubReleaseRecord {
@@ -51,14 +36,20 @@ interface ReleaseHistoryCacheRecord {
   fetchedAt: number;
 }
 
-const GREASYFORK_VERSIONS_URL = 'https://greasyfork.org/en/scripts/568667-qolbox/versions.json';
+const GREASYFORK_HISTORY_URL = 'https://greasyfork.org/en/scripts/568667-qolbox/versions?show_all_versions=1';
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/AggressiveCombo/QOLBox/releases?per_page=100';
-const RELEASE_HISTORY_CACHE_KEY = 'vm.hitbox.qolboxReleaseHistory.v1';
+const RELEASE_HISTORY_CACHE_KEY = 'vm.hitbox.qolboxReleaseHistory.v2';
 const RELEASE_HISTORY_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const RELEASE_HISTORY_FETCH_TIMEOUT_MS = 7000;
 const LOCAL_CURRENT_RELEASE_FALLBACK_NOTES: readonly string[] = [
-  'Public release notes could not be loaded for this version.',
-  'Check GitHub releases or GreasyFork version history for the full changelog when available.',
+  'No public update notes were found for this version.',
+];
+const GREASYFORK_EMPTY_HISTORY_NOTES: readonly string[] = [
+  'No public update notes were posted for this version.',
+];
+const INITIAL_RELEASE_NOTES: readonly string[] = [
+  'Initial release.',
+  'Persisted Hitbox game and jukebox volume, with wheel controls and jukebox mute.',
 ];
 
 const LOCAL_CURRENT_RELEASE_FALLBACK: readonly QolboxReleaseNote[] = [
@@ -204,10 +195,19 @@ function getSourcePriority(source: QolboxReleaseNoteSource): number {
   }
 }
 
+function hasReleaseHistoryText(entry: QolboxReleaseNote): boolean {
+  return !entry.notes.every(note => GREASYFORK_EMPTY_HISTORY_NOTES.includes(note));
+}
+
 function shouldReplaceReleaseEntry(next: QolboxReleaseNote, current: QolboxReleaseNote): boolean {
   const sourcePriorityDelta = getSourcePriority(next.source) - getSourcePriority(current.source);
   if (sourcePriorityDelta) {
     return sourcePriorityDelta > 0;
+  }
+
+  const noteQualityDelta = Number(hasReleaseHistoryText(next)) - Number(hasReleaseHistoryText(current));
+  if (noteQualityDelta) {
+    return noteQualityDelta > 0;
   }
 
   const timestampDelta = getReleaseTimestamp(next) - getReleaseTimestamp(current);
@@ -297,27 +297,6 @@ function parseGitHubReleaseEntries(rawValue: unknown): QolboxReleaseNote[] {
     .filter(entry => entry.version && entry.notes.length);
 }
 
-function parseGreasyForkDetailEntry(record: GreasyForkScriptRecord, fallback: GreasyForkVersionRecord): QolboxReleaseNote | null {
-  const version = normalizeVersionKey(record.version || fallback.version);
-  if (!version) {
-    return null;
-  }
-
-  const description = typeof record.description === 'string' ? cleanReleaseText(record.description) : '';
-  return {
-    version,
-    source: 'greasyfork',
-    publishedAt:
-      typeof record.code_updated_at === 'string'
-        ? record.code_updated_at
-        : typeof fallback.created_at === 'string'
-          ? fallback.created_at
-          : undefined,
-    url: typeof record.url === 'string' ? record.url : undefined,
-    notes: description ? [description] : [`Published on GreasyFork as QOLBox ${version}.`],
-  };
-}
-
 async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), RELEASE_HISTORY_FETCH_TIMEOUT_MS);
@@ -338,32 +317,66 @@ async function fetchJson(url: string, headers: Record<string, string> = {}): Pro
   }
 }
 
+async function fetchText(url: string, headers: Record<string, string> = {}): Promise<string> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), RELEASE_HISTORY_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'text/html',
+        ...headers,
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return await response.text();
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 async function fetchGitHubReleaseEntries(): Promise<QolboxReleaseNote[]> {
   return parseGitHubReleaseEntries(await fetchJson(GITHUB_RELEASES_URL));
 }
 
-async function fetchGreasyForkReleaseEntries(): Promise<QolboxReleaseNote[]> {
-  const rawVersions = await fetchJson(GREASYFORK_VERSIONS_URL);
-  if (!Array.isArray(rawVersions)) {
-    return [];
+function getGreasyForkHistoryNotes(version: string, changelogElement: Element | null): readonly string[] {
+  if (!changelogElement) {
+    return version === '1.0.0' ? INITIAL_RELEASE_NOTES : GREASYFORK_EMPTY_HISTORY_NOTES;
   }
 
-  const versions = rawVersions.filter((record): record is GreasyForkVersionRecord => isRecord(record));
-  const detailResults = await Promise.allSettled(
-    versions.map(async versionRecord => {
-      if (typeof versionRecord.url !== 'string') {
+  const notes = Array.from(changelogElement.querySelectorAll('li, p'))
+    .map(element => cleanReleaseText(element.textContent || ''))
+    .filter(Boolean);
+
+  return notes.length ? notes : GREASYFORK_EMPTY_HISTORY_NOTES;
+}
+
+function parseGreasyForkHistoryEntries(html: string): QolboxReleaseNote[] {
+  const document = new DOMParser().parseFromString(html, 'text/html');
+  return Array.from(document.querySelectorAll('.history_versions > li'))
+    .map((item): QolboxReleaseNote | null => {
+      const versionLink = item.querySelector('.version-number a');
+      const version = normalizeVersionKey(versionLink?.textContent);
+      if (!version) {
         return null;
       }
 
-      const detail = await fetchJson(versionRecord.url);
-      return isRecord(detail) ? parseGreasyForkDetailEntry(detail, versionRecord) : null;
+      const href = versionLink?.getAttribute('href') || '';
+      return {
+        version,
+        source: 'greasyfork' as const,
+        publishedAt: item.querySelector('relative-time')?.getAttribute('datetime') || undefined,
+        url: href ? new URL(href, GREASYFORK_HISTORY_URL).href : undefined,
+        notes: getGreasyForkHistoryNotes(version, item.querySelector('.version-changelog')),
+      };
     })
-  );
-
-  return detailResults
-    .filter((result): result is PromiseFulfilledResult<QolboxReleaseNote | null> => result.status === 'fulfilled')
-    .map(result => result.value)
     .filter((entry): entry is QolboxReleaseNote => Boolean(entry));
+}
+
+async function fetchGreasyForkReleaseEntries(): Promise<QolboxReleaseNote[]> {
+  return parseGreasyForkHistoryEntries(await fetchText(GREASYFORK_HISTORY_URL));
 }
 
 function safeGetLocalStorage(key: string): string | null {
@@ -458,7 +471,7 @@ export function getReleaseNotesBetween(
 ): QolboxReleaseNote[] {
   const entries = dedupeLatestReleaseEntries(releaseHistory);
   const selectedEntries = entries.filter(entry => isVersionInUpgradeRange(entry.version, previousVersion, currentVersion));
-  if (selectedEntries.length > 1 || !previousVersion) {
+  if (!previousVersion) {
     return selectedEntries;
   }
 
@@ -468,57 +481,6 @@ export function getReleaseNotesBetween(
     : selectedEntries;
 }
 
-export function getReleaseHistorySourceLabel(notes: readonly QolboxReleaseNote[]): string {
-  const sources = new Set(notes.map(note => note.source));
-  const hasFallback = sources.has('local-fallback');
-  const hasGitHub = sources.has('github');
-  const hasGreasyFork = sources.has('greasyfork');
-  let remoteLabel = '';
-
-  if (hasGitHub && hasGreasyFork) {
-    remoteLabel = 'GitHub releases and GreasyFork version history';
-  } else if (hasGitHub) {
-    remoteLabel = 'GitHub releases';
-  } else if (hasGreasyFork) {
-    remoteLabel = 'GreasyFork version history';
-  }
-
-  if (hasFallback && remoteLabel) {
-    return `bundled fallback notes and ${remoteLabel}`;
-  }
-  if (hasFallback) {
-    return 'bundled fallback notes';
-  }
-
-  return remoteLabel || 'release history';
-}
-
-function getLoadedReleaseHistoryMessage(notes: readonly QolboxReleaseNote[]): string {
-  const hasFallback = notes.some(note => note.source === 'local-fallback');
-  const hasRemote = notes.some(note => note.source === 'github' || note.source === 'greasyfork');
-
-  if (hasFallback && hasRemote) {
-    return 'Loaded public version history where available. Showing bundled fallback messages for missing entries.';
-  }
-  if (hasFallback) {
-    return 'No public notes matched this update. Showing a bundled fallback message.';
-  }
-  return 'Loaded public version history.';
-}
-
-function getCachedReleaseHistoryMessage(notes: readonly QolboxReleaseNote[]): string {
-  const hasFallback = notes.some(note => note.source === 'local-fallback');
-  const hasRemote = notes.some(note => note.source === 'github' || note.source === 'greasyfork');
-
-  if (hasFallback && hasRemote) {
-    return 'Loaded cached public version history where available. Showing bundled fallback messages for missing entries.';
-  }
-  if (hasFallback) {
-    return 'No cached public notes matched this update. Showing a bundled fallback message.';
-  }
-  return 'Loaded cached public version history.';
-}
-
 export function createInitialReleaseHistoryState(previousVersion: string, currentVersion = QOLBOX_VERSION): QolboxReleaseHistoryState {
   const cachedEntries = getCachedReleaseHistoryEntries();
   if (cachedEntries) {
@@ -526,8 +488,6 @@ export function createInitialReleaseHistoryState(previousVersion: string, curren
     return {
       status: 'ready',
       notes,
-      sourceLabel: getReleaseHistorySourceLabel(notes),
-      message: getCachedReleaseHistoryMessage(notes),
     };
   }
 
@@ -535,8 +495,6 @@ export function createInitialReleaseHistoryState(previousVersion: string, curren
   return {
     status: 'loading',
     notes,
-    sourceLabel: getReleaseHistorySourceLabel(notes),
-    message: 'Loading public version history...',
   };
 }
 
@@ -547,8 +505,6 @@ export async function loadReleaseHistoryState(previousVersion: string, currentVe
     return {
       status: 'ready',
       notes,
-      sourceLabel: getReleaseHistorySourceLabel(notes),
-      message: getLoadedReleaseHistoryMessage(notes),
     };
   } catch {
     const cachedEntries = getCachedReleaseHistoryEntries(true);
@@ -557,8 +513,6 @@ export async function loadReleaseHistoryState(previousVersion: string, currentVe
       return {
         status: 'fallback',
         notes,
-        sourceLabel: getReleaseHistorySourceLabel(notes),
-        message: `Could not refresh public version history. ${getCachedReleaseHistoryMessage(notes)}`,
       };
     }
 
@@ -566,8 +520,6 @@ export async function loadReleaseHistoryState(previousVersion: string, currentVe
     return {
       status: 'fallback',
       notes,
-      sourceLabel: getReleaseHistorySourceLabel(notes),
-      message: 'Could not load public version history. Showing a bundled fallback message.',
     };
   }
 }
