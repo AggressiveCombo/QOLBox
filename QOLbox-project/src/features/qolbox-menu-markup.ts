@@ -470,6 +470,9 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
             <span class="qolboxMenuSpinner" aria-hidden="true"></span>
             <span>Loading update notes from GitHub and GreasyFork...</span>
           </div>
+          <div class="qolboxMenuActions">
+            <button class="qolboxMenuButton primary" data-qolbox-action="acknowledge-update">Skip</button>
+          </div>
         </div>
       `;
     }

@@ -5,6 +5,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "version:dev": "node scripts/set-dev-version.mjs",
+    "version:release": "node scripts/set-release-version.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run build"
   },

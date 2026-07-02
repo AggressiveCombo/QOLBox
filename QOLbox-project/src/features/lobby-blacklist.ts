@@ -1,5 +1,11 @@
 import { banPlayer } from '../hitbox/lobby-actions';
+import { scheduleActiveMatchPlayerRemoval } from '../hitbox/active-match-removal';
 import { installPlayerJoinHook } from '../hitbox/player-join-hooks';
+import {
+  isNativeObject,
+  readNativeProperty,
+  setNativeReflectProperty,
+} from '../hitbox/native-access';
 import {
   getLocalPlayerId,
   getMultiplayerSession,
@@ -33,6 +39,8 @@ interface CurrentPlayerNameLookup {
   match: string | null;
   partialMatches: string[];
 }
+
+const BLACKLIST_CHAT_FILTER_FLAG = '__qolboxBlacklistChatFilterInstalled';
 
 function parseQuotedName(value: string): ParsedBlacklistName {
   const trimmed = value.trim();
@@ -114,6 +122,12 @@ function getPartialCurrentPlayerMessage(requestedName: string, matches: readonly
   );
 }
 
+function getNativeBlacklistStatusName(line: unknown): string | null {
+  const text = String(line || '').replace(/^\s*\*\s*/, '').replace(/\s+/g, ' ').trim();
+  const match = text.match(/^(.+?) has (?:joined the game|been banned from this room|left the game)\.?$/i);
+  return match?.[1].trim() || null;
+}
+
 export function createLobbyBlacklistController(options: LobbyBlacklistOptions) {
   let blacklistNames = loadBlacklistNames();
   let hookTarget: unknown = null;
@@ -126,6 +140,39 @@ export function createLobbyBlacklistController(options: LobbyBlacklistOptions) {
 
   function getBlacklistNameMap(): Map<string, string> {
     return new Map(blacklistNames.map(name => [normalizePlayerName(name), name]));
+  }
+
+  function shouldSuppressNativeBlacklistStatus(line: unknown): boolean {
+    if (!options.areLobbyCommandsEnabled() || !options.isEnforcementEnabled()) {
+      return false;
+    }
+
+    const playerName = getNativeBlacklistStatusName(line);
+    return Boolean(playerName && getBlacklistNameMap().has(normalizePlayerName(playerName)));
+  }
+
+  function installBlacklistChatFilter(session: unknown): void {
+    if (!isNativeObject(session) || readNativeProperty(session, BLACKLIST_CHAT_FILTER_FLAG) === true) {
+      return;
+    }
+
+    const nativeWriteChatLine = readNativeProperty(session, 'vG');
+    if (typeof nativeWriteChatLine !== 'function') {
+      return;
+    }
+    const nativeWriteChat = nativeWriteChatLine;
+
+    function wrappedBlacklistChatLineFilter(this: unknown, line: unknown, ...rest: unknown[]): unknown {
+      if (shouldSuppressNativeBlacklistStatus(line)) {
+        return undefined;
+      }
+
+      return Reflect.apply(nativeWriteChat, this, [line, ...rest]);
+    }
+
+    setNativeReflectProperty(wrappedBlacklistChatLineFilter, '__qolboxOriginal', nativeWriteChat);
+    setNativeReflectProperty(session, 'vG', wrappedBlacklistChatLineFilter);
+    setNativeReflectProperty(session, BLACKLIST_CHAT_FILTER_FLAG, true);
   }
 
   function resetAttemptsForSession(session: unknown): void {
@@ -170,6 +217,7 @@ export function createLobbyBlacklistController(options: LobbyBlacklistOptions) {
       attemptedPlayers.add(attemptKey);
       if (banPlayer(session, id)) {
         banned += 1;
+        scheduleActiveMatchPlayerRemoval(session, id);
         options.showStatus(`Banned blacklisted player ${playerName || 'Player'}.`, session);
       } else {
         attemptedPlayers.delete(attemptKey);
@@ -195,6 +243,7 @@ export function createLobbyBlacklistController(options: LobbyBlacklistOptions) {
 
   function patchLobbyBlacklist(): void {
     const session = getMultiplayerSession();
+    installBlacklistChatFilter(session);
     installBlacklistHook(session);
     enforceBlacklist(session);
   }

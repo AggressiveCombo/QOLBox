@@ -2,7 +2,7 @@
 // @name         QOLBox
 // @namespace    Violentmonkey Scripts
 // @author       gpt-5.4 and gpt-5.5
-// @version      2.1.3
+// @version      2.1.4
 // @description  Fullscreen hitbox.io, reserve spots, away-tab alerts, audio controls, mobile Grab, readable chat, lobby commands, map import/export, and first-start setup for hitbox.io.
 // @license      ISC
 // @match        https://hitbox.io/
@@ -1483,7 +1483,6 @@
           onReady(event, ...readyArgs) {
             const player = readObjectProperty(event, "target") || options.getPlayer();
             options.onPlayerReady(player);
-            options.onPlayerStateNeeded(player || options.getPlayer());
             try {
               return isNativeCallable2(originalOnReady) ? Reflect.apply(originalOnReady, this, [event, ...readyArgs]) : void 0;
             } finally {
@@ -1698,10 +1697,6 @@
               onPlayerStateNeeded: applyPlayerState
             });
             instance = new OriginalPlayer(...wrappedArgs);
-            trackPlayer(instance);
-            window.setTimeout(() => {
-              applyPlayerState(instance);
-            }, 0);
             return instance;
           }
           Object.setPrototypeOf(WrappedPlayer, OriginalPlayer);
@@ -7694,6 +7689,36 @@
         };
       }
 
+      // src/hitbox/active-match-removal.ts
+      var ACTIVE_MATCH_BLACKLIST_CLEANUP_DELAYS_MS = [0, 250, 750, 1500, 3e3, 5e3];
+      function getActiveMatchRuntime(session) {
+        const runtime = readNativePath(session, ["KR"]);
+        return readNativeProperty(runtime, "SL") ? runtime : null;
+      }
+      function getRuntimeFrame(runtime) {
+        const frame = Number(readNativeProperty(runtime, "hD") ?? readNativeProperty(runtime, "AI"));
+        return Number.isFinite(frame) && frame >= 0 ? frame : 0;
+      }
+      function removeActiveMatchPlayer(session, playerId) {
+        const runtime = getActiveMatchRuntime(session);
+        if (!runtime || playerId === null || playerId === void 0) {
+          return false;
+        }
+        const numericId = Number(playerId);
+        const id = Number.isFinite(numericId) ? numericId : playerId;
+        return callNativeMethod(runtime, "OL", [id, getRuntimeFrame(runtime)]).called;
+      }
+      function scheduleActiveMatchPlayerRemoval(session, playerId) {
+        if (!getActiveMatchRuntime(session) || playerId === null || playerId === void 0) {
+          return;
+        }
+        for (const delay of ACTIVE_MATCH_BLACKLIST_CLEANUP_DELAYS_MS) {
+          window.setTimeout(() => {
+            removeActiveMatchPlayer(session, playerId);
+          }, delay);
+        }
+      }
+
       // src/hitbox/player-join-hooks.ts
       var PLAYER_JOIN_HOOK_MARKER = "__qolboxPlayerJoinHookInstalled";
       function installPlayerJoinHook(session, onPlayerJoined) {
@@ -7757,6 +7782,7 @@
       }
 
       // src/features/lobby-blacklist.ts
+      var BLACKLIST_CHAT_FILTER_FLAG = "__qolboxBlacklistChatFilterInstalled";
       function parseQuotedName(value) {
         const trimmed = value.trim();
         const match = trimmed.match(/^(["'])(.*)\1$/);
@@ -7819,6 +7845,11 @@
         const matchText = matches.join(", ");
         return `Blacklist uses exact names. '${requestedName}' partially matches ${matchText}. Type the full player name or use ${getQuotedCommandExample(requestedName)} to add exactly '${requestedName}'.`;
       }
+      function getNativeBlacklistStatusName(line) {
+        const text = String(line || "").replace(/^\s*\*\s*/, "").replace(/\s+/g, " ").trim();
+        const match = text.match(/^(.+?) has (?:joined the game|been banned from this room|left the game)\.?$/i);
+        return match?.[1].trim() || null;
+      }
       function createLobbyBlacklistController(options) {
         let blacklistNames = loadBlacklistNames();
         let hookTarget = null;
@@ -7829,6 +7860,32 @@
         }
         function getBlacklistNameMap() {
           return new Map(blacklistNames.map((name) => [normalizePlayerName(name), name]));
+        }
+        function shouldSuppressNativeBlacklistStatus(line) {
+          if (!options.areLobbyCommandsEnabled() || !options.isEnforcementEnabled()) {
+            return false;
+          }
+          const playerName = getNativeBlacklistStatusName(line);
+          return Boolean(playerName && getBlacklistNameMap().has(normalizePlayerName(playerName)));
+        }
+        function installBlacklistChatFilter(session) {
+          if (!isNativeObject(session) || readNativeProperty(session, BLACKLIST_CHAT_FILTER_FLAG) === true) {
+            return;
+          }
+          const nativeWriteChatLine = readNativeProperty(session, "vG");
+          if (typeof nativeWriteChatLine !== "function") {
+            return;
+          }
+          const nativeWriteChat = nativeWriteChatLine;
+          function wrappedBlacklistChatLineFilter(line, ...rest) {
+            if (shouldSuppressNativeBlacklistStatus(line)) {
+              return void 0;
+            }
+            return Reflect.apply(nativeWriteChat, this, [line, ...rest]);
+          }
+          setNativeReflectProperty(wrappedBlacklistChatLineFilter, "__qolboxOriginal", nativeWriteChat);
+          setNativeReflectProperty(session, "vG", wrappedBlacklistChatLineFilter);
+          setNativeReflectProperty(session, BLACKLIST_CHAT_FILTER_FLAG, true);
         }
         function resetAttemptsForSession(session) {
           if (attemptedSession === session) {
@@ -7861,6 +7918,7 @@
             attemptedPlayers.add(attemptKey);
             if (banPlayer(session, id)) {
               banned += 1;
+              scheduleActiveMatchPlayerRemoval(session, id);
               options.showStatus(`Banned blacklisted player ${playerName || "Player"}.`, session);
             } else {
               attemptedPlayers.delete(attemptKey);
@@ -7881,6 +7939,7 @@
         }
         function patchLobbyBlacklist() {
           const session = getMultiplayerSession();
+          installBlacklistChatFilter(session);
           installBlacklistHook(session);
           enforceBlacklist(session);
         }
@@ -8869,7 +8928,7 @@
       }
 
       // src/config/qolbox-version.ts
-      var QOLBOX_VERSION = "2.1.3";
+      var QOLBOX_VERSION = "2.1.4";
       var QOLBOX_VERSION_LABEL = `v${QOLBOX_VERSION}`;
       var QOLBOX_GREASYFORK_URL = "https://greasyfork.org/en/scripts/568667-qolbox";
       var QOLBOX_GITHUB_URL = "https://github.com/AggressiveCombo/QOLBox";
@@ -9147,6 +9206,13 @@
           Accept: "text/html",
           ...headers
         };
+        if (window.__qolboxReleaseHistoryBridgeReady) {
+          try {
+            return await fetchTextWithUserscriptBridge(url, requestHeaders);
+          } catch {
+            return fetchTextWithPageFetch(url, requestHeaders);
+          }
+        }
         try {
           return await fetchTextWithPageFetch(url, requestHeaders);
         } catch {
@@ -10132,6 +10198,9 @@
               <div class="qolboxMenuLoading" role="status" aria-live="polite">
                 <span class="qolboxMenuSpinner" aria-hidden="true"></span>
                 <span>Loading update notes from GitHub and GreasyFork...</span>
+              </div>
+              <div class="qolboxMenuActions">
+                <button class="qolboxMenuButton primary" data-qolbox-action="acknowledge-update">Skip</button>
               </div>
             </div>
           `;

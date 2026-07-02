@@ -1,4 +1,4 @@
-export const QOLBOX_VERSION = '2.1.3';
+export const QOLBOX_VERSION = '2.1.4';
 export const QOLBOX_VERSION_LABEL = `v${QOLBOX_VERSION}`;
 
 export const QOLBOX_GREASYFORK_URL = 'https://greasyfork.org/en/scripts/568667-qolbox';

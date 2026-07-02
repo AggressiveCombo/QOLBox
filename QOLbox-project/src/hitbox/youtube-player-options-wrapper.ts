@@ -28,7 +28,6 @@ export function wrapYouTubePlayerOptions(
     onReady(this: unknown, event: unknown, ...readyArgs: unknown[]): unknown {
       const player = readObjectProperty(event, 'target') || options.getPlayer();
       options.onPlayerReady(player);
-      options.onPlayerStateNeeded(player || options.getPlayer());
 
       try {
         return isNativeCallable(originalOnReady)

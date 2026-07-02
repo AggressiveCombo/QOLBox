@@ -242,10 +242,6 @@ export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOption
         onPlayerStateNeeded: applyPlayerState,
       });
       instance = new OriginalPlayer(...wrappedArgs);
-      trackPlayer(instance);
-      window.setTimeout(() => {
-        applyPlayerState(instance);
-      }, 0);
       return instance;
     }
 

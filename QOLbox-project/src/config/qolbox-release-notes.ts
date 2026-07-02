@@ -391,6 +391,14 @@ async function fetchText(url: string, headers: Record<string, string> = {}): Pro
     ...headers,
   };
 
+  if (window.__qolboxReleaseHistoryBridgeReady) {
+    try {
+      return await fetchTextWithUserscriptBridge(url, requestHeaders);
+    } catch {
+      return fetchTextWithPageFetch(url, requestHeaders);
+    }
+  }
+
   try {
     return await fetchTextWithPageFetch(url, requestHeaders);
   } catch {

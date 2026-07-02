@@ -7,14 +7,14 @@ const metadataPath = path.join(projectDirectory, 'src', 'userscript.meta.txt');
 const versionPath = path.join(projectDirectory, 'src', 'config', 'qolbox-version.ts');
 
 const nextVersion = process.argv[2];
-const nextName = 'QOLBox-dev';
+const nextName = 'QOLBox';
 
 if (!nextVersion) {
-  throw new Error('Usage: npm run version:dev -- 2.1.0-dev');
+  throw new Error('Usage: npm run version:release -- 2.1.4');
 }
 
-if (!/^\d+\.\d+\.\d+-dev$/i.test(nextVersion)) {
-  throw new Error(`Expected a dev version like 2.1.0-dev, got ${nextVersion}`);
+if (!/^\d+\.\d+\.\d+$/i.test(nextVersion)) {
+  throw new Error(`Expected a release version like 2.1.4, got ${nextVersion}`);
 }
 
 function replaceRequired(source, pattern, replacement, label) {
