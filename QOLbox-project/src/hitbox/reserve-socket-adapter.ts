@@ -1,4 +1,9 @@
-import { readNativeProperty, readNativeReflectProperty, setNativeReflectProperty } from './native-access';
+import {
+  readNativeProperty,
+  readNativeReflectProperty,
+  replaceNativeReflectProperty,
+  setNativeReflectProperty,
+} from './native-access';
 import {
   isNativeReserveCallable,
   type NativeReserveCallable,
@@ -109,8 +114,6 @@ export function createReserveSocketCaptureHook(options: ReserveSocketCaptureHook
       return;
     }
 
-    socketHookInstalled = true;
-
     try {
       let ioValue = readNativeReflectProperty(window, 'io');
       Object.defineProperty(window, 'io', {
@@ -127,10 +130,11 @@ export function createReserveSocketCaptureHook(options: ReserveSocketCaptureHook
       if (ioValue) {
         setNativeReflectProperty(window, 'io', ioValue);
       }
+      socketHookInstalled = true;
     } catch {
       const ioValue = readNativeReflectProperty(window, 'io');
       if (ioValue) {
-        setNativeReflectProperty(window, 'io', patchIo(ioValue));
+        socketHookInstalled = replaceNativeReflectProperty(window, 'io', patchIo(ioValue));
       }
     }
   }

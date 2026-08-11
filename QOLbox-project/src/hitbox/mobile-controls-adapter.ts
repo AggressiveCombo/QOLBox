@@ -1,4 +1,12 @@
-import { isNativeObject, readNativePath, readNativeProperty, setNativeReflectProperty } from './native-access';
+import {
+  isNativeObject,
+  readNativePath,
+  readNativeProperty,
+  readNativeReflectProperty,
+  replaceNativeReflectProperty,
+  setNativeReflectProperty,
+} from './native-access';
+import { HITBOX_NATIVE } from './native-contract';
 
 declare global {
   interface Window {
@@ -15,16 +23,16 @@ interface NativeMobileControlHooks {
 
 export function isNativeMobileMode(): boolean {
   const game = window.a8;
-  return Boolean(readNativeProperty(game, 'xm') || readNativeProperty(game, 'PD'));
+  return Boolean(readNativeProperty(game, HITBOX_NATIVE.mobile.mobileFlag) || readNativeProperty(game, HITBOX_NATIVE.mobile.controls));
 }
 
 export function isNativeTouchLobbyChatPrompt(): boolean {
   // `xm` is the observed native flag for the touch/mobile lobby chat prompt path.
-  return Boolean(readNativeProperty(window.a8, 'xm'));
+  return Boolean(readNativeProperty(window.a8, HITBOX_NATIVE.mobile.mobileFlag));
 }
 
 export function getNativeMobileControls(): unknown | null {
-  return readNativeProperty(window.a8, 'PD') ?? null;
+  return readNativeProperty(window.a8, HITBOX_NATIVE.mobile.controls) ?? null;
 }
 
 function getControlSlot(controls: unknown, key: string): unknown {
@@ -32,12 +40,12 @@ function getControlSlot(controls: unknown, key: string): unknown {
 }
 
 function getControlInputState(control: unknown): unknown | null {
-  const inputState = readNativeProperty(control, 'hg');
+  const inputState = readNativeProperty(control, HITBOX_NATIVE.mobile.inputState);
   return isNativeObject(inputState) ? inputState : null;
 }
 
 export function getNativeMobileControlInputState(controls: unknown = getNativeMobileControls()): unknown | null {
-  for (const key of ['oz', 'rz', 'az', 'nz']) {
+  for (const key of [...HITBOX_NATIVE.mobile.slots, 'nz']) {
     const inputState = getControlInputState(getControlSlot(controls, key));
     if (inputState) {
       return inputState;
@@ -59,8 +67,8 @@ export function getNativeMobileAbilityButtonElements(): Element[] {
   }
 
   const buttons: Element[] = [];
-  for (const key of ['oz', 'rz', 'az']) {
-    const element = readNativeProperty(getControlSlot(controls, key), 'hf');
+  for (const key of HITBOX_NATIVE.mobile.slots) {
+    const element = readNativeProperty(getControlSlot(controls, key), HITBOX_NATIVE.mobile.view);
     if (element instanceof Element) {
       buttons.push(element);
     }
@@ -74,8 +82,7 @@ export function setGrabInputPressed(inputState: unknown, pressed: boolean): bool
   }
 
   // `Fn` is the observed input-state flag shared by desktop and mobile Grab.
-  setNativeReflectProperty(inputState, 'Fn', pressed);
-  return true;
+  return setNativeReflectProperty(inputState, HITBOX_NATIVE.mobile.pressGrab, pressed);
 }
 
 export function installNativeMobileControlHooks(hooks: NativeMobileControlHooks): boolean {
@@ -84,47 +91,51 @@ export function installNativeMobileControlHooks(hooks: NativeMobileControlHooks)
     return false;
   }
 
-  if (readNativeProperty(controls, '__qolboxMobileGrabPatched')) {
-    return true;
+  let hookInstalled = false;
+
+  function installHook(
+    methodName: string,
+    createWrapper: (original: (...args: unknown[]) => unknown) => (...args: unknown[]) => unknown
+  ): void {
+    const method = readNativeProperty(controls, methodName);
+    if (typeof method !== 'function') {
+      return;
+    }
+    if (readNativeReflectProperty(method, '__qolboxMobileGrabWrapped') === true) {
+      hookInstalled = true;
+      return;
+    }
+
+    const wrapper = createWrapper(method as (...args: unknown[]) => unknown);
+    setNativeReflectProperty(wrapper, '__qolboxMobileGrabWrapped', true);
+    hookInstalled = replaceNativeReflectProperty(controls, methodName, wrapper) || hookInstalled;
   }
 
-  setNativeReflectProperty(controls, '__qolboxMobileGrabPatched', true);
-
-  const setInputState = readNativeProperty(controls, 'ED');
-  if (typeof setInputState === 'function') {
-    const originalSetInputState = setInputState;
-    setNativeReflectProperty(
-      controls,
-      'ED',
-      function wrappedMobileControlInputState(this: unknown, inputState: unknown, ...rest: unknown[]) {
+  installHook(HITBOX_NATIVE.mobile.setInputState, originalSetInputState =>
+    function wrappedMobileControlInputState(this: unknown, inputState: unknown, ...rest: unknown[]) {
         hooks.onInputStateObserved(inputState);
         const result = Reflect.apply(originalSetInputState, this, [inputState, ...rest]);
         hooks.afterInputStateSet(inputState);
         hooks.onControlsShown();
         return result;
-      }
-    );
-  }
+    }
+  );
 
-  const showControls = readNativeProperty(controls, 'NL');
-  if (typeof showControls === 'function') {
-    const originalShowControls = showControls;
-    setNativeReflectProperty(controls, 'NL', function wrappedMobileControlsShow(this: unknown, ...args: unknown[]) {
+  installHook(HITBOX_NATIVE.mobile.show, originalShowControls =>
+    function wrappedMobileControlsShow(this: unknown, ...args: unknown[]) {
       const result = Reflect.apply(originalShowControls, this, args);
       hooks.onControlsShown();
       return result;
-    });
-  }
+    }
+  );
 
-  const hideControls = readNativeProperty(controls, '_L');
-  if (typeof hideControls === 'function') {
-    const originalHideControls = hideControls;
-    setNativeReflectProperty(controls, '_L', function wrappedMobileControlsHide(this: unknown, ...args: unknown[]) {
+  installHook(HITBOX_NATIVE.mobile.hide, originalHideControls =>
+    function wrappedMobileControlsHide(this: unknown, ...args: unknown[]) {
       const result = Reflect.apply(originalHideControls, this, args);
       hooks.onControlsHidden();
       return result;
-    });
-  }
+    }
+  );
 
-  return true;
+  return hookInstalled;
 }

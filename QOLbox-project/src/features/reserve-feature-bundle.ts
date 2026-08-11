@@ -20,9 +20,6 @@ import { createReserveSocketCaptureHook } from '../hitbox/reserve-socket-adapter
 import { createReserveActionControls } from './reserve-action-controls';
 import { createReserveCapturedJoinController } from './reserve-captured-join';
 import { createReserveConnectingStateController } from './reserve-connecting-state';
-import { createReserveCountdownTimer } from './reserve-countdown-timer';
-import { createReserveDomEventHooks } from './reserve-dom-event-hooks';
-import { createReserveFeaturePatchController } from './reserve-feature-patch';
 import { createReserveInteractionHandlers } from './reserve-interaction-handlers';
 import { createReserveLifecycleController } from './reserve-lifecycle';
 import {
@@ -32,12 +29,9 @@ import {
   isReserveRoomFull,
   isReserveUnavailableRoom,
 } from './reserve-room-list';
-import { createReserveRoomFullSuppression } from './reserve-room-full-suppression';
-import { createReserveRetryAudioSuppression } from './reserve-retry-audio-suppression';
 import { createReserveRetryScheduler } from './reserve-retry-scheduler';
 import { createReserveNativeStatus } from './reserve-native-status';
 import { createReserveSelectionState } from './reserve-selection-state';
-import { createReserveStatusWatchTimer } from './reserve-status-watch-timer';
 import { createReserveWaitingWindow } from './reserve-waiting-window';
 import { getReserveJoinPayload } from './reserve-join-payload';
 
@@ -47,7 +41,66 @@ interface ReserveFeatureBundleOptions {
 }
 
 export function createReserveFeatureBundle(options: ReserveFeatureBundleOptions) {
+  let roomFullSuppressedUntil = 0;
+  let retryAudioSuppressedUntil = 0;
+  let statusWatchTimer = 0;
+  let countdownTimer = 0;
+  let domEventsInstalled = false;
+
+  function isReserveJoinedRoomFullSuppressed(): boolean {
+    return Date.now() < roomFullSuppressedUntil;
+  }
+
+  function suppressReserveRoomFullAfterJoin(): void {
+    roomFullSuppressedUntil = Date.now() + RESERVE_JOINED_ROOM_FULL_SUPPRESS_MS;
+  }
+
+  function isReserveRetryAudioSuppressed(): boolean {
+    return Date.now() < retryAudioSuppressedUntil;
+  }
+
+  function suppressReserveRetryAudio(): void {
+    retryAudioSuppressedUntil = Date.now() + RESERVE_RETRY_AUDIO_SUPPRESS_MS;
+  }
+
+  function clearReserveStatusWatchTimer(): void {
+    window.clearTimeout(statusWatchTimer);
+    statusWatchTimer = 0;
+  }
+
+  function scheduleReserveStatusWatch(delay = 250): void {
+    if (statusWatchTimer) {
+      return;
+    }
+    statusWatchTimer = window.setTimeout(() => {
+      statusWatchTimer = 0;
+      handleReserveConnectingState();
+      if (shouldContinueReserveStatusWatch()) {
+        scheduleReserveStatusWatch(delay);
+      }
+    }, delay);
+  }
+
+  function clearReserveCountdownTimer(): void {
+    window.clearTimeout(countdownTimer);
+    countdownTimer = 0;
+  }
+
+  function scheduleReserveCountdownUpdate(): void {
+    if (countdownTimer || !getReserveState()?.active) {
+      return;
+    }
+    countdownTimer = window.setTimeout(() => {
+      countdownTimer = 0;
+      if (getReserveState()?.active) {
+        updateReserveWaitingWindow();
+        scheduleReserveCountdownUpdate();
+      }
+    }, RESERVE_COUNTDOWN_UPDATE_MS);
+  }
+
   const {
+    clearReserveSelectedRoom,
     getReserveSelectedRoomRow,
     getReserveSelectedRoomState,
     rememberReserveSelectedRoom,
@@ -91,6 +144,7 @@ export function createReserveFeatureBundle(options: ReserveFeatureBundleOptions)
     syncReserveJoinButtonLabel,
     syncReservePasswordPrompt,
   } = createReserveActionControls({
+    clearReserveSelectedRoom,
     getReserveJoinButton,
     getReserveSelectedRoomState,
     isElementVisible,
@@ -109,26 +163,6 @@ export function createReserveFeatureBundle(options: ReserveFeatureBundleOptions)
     roomClosedPattern: RESERVE_ROOM_CLOSED_PATTERN,
     roomFullPattern: RESERVE_ROOM_FULL_PATTERN,
     wrongPasswordPattern: RESERVE_WRONG_PASSWORD_PATTERN,
-  });
-  const {
-    isReserveJoinedRoomFullSuppressed,
-    suppressReserveRoomFullAfterJoin,
-  } = createReserveRoomFullSuppression({
-    suppressMs: RESERVE_JOINED_ROOM_FULL_SUPPRESS_MS,
-  });
-  const {
-    clearReserveStatusWatchTimer,
-    scheduleReserveStatusWatch,
-  } = createReserveStatusWatchTimer({
-    defaultDelayMs: 250,
-    onTick: () => handleReserveConnectingState(),
-    shouldContinue: () => shouldContinueReserveStatusWatch(),
-  });
-  const {
-    isReserveRetryAudioSuppressed,
-    suppressReserveRetryAudio,
-  } = createReserveRetryAudioSuppression({
-    suppressMs: RESERVE_RETRY_AUDIO_SUPPRESS_MS,
   });
   const {
     canAutoReserveCapturedJoin,
@@ -162,14 +196,6 @@ export function createReserveFeatureBundle(options: ReserveFeatureBundleOptions)
     statusFallbackText: RESERVE_STATUS_FALLBACK_TEXT,
     unavailableTitleText: RESERVE_UNAVAILABLE_TITLE_TEXT,
     waitTitleText: RESERVE_WAIT_TITLE_TEXT,
-  });
-  const {
-    clearReserveCountdownTimer,
-    scheduleReserveCountdownUpdate,
-  } = createReserveCountdownTimer({
-    getState: () => getReserveState(),
-    intervalMs: RESERVE_COUNTDOWN_UPDATE_MS,
-    onTick: () => updateReserveWaitingWindow(),
   });
   const { clearReserveRetryTimer, scheduleReserveRetry } = createReserveRetryScheduler({
     emitJoinAttempt: emitReserveJoinAttempt,
@@ -228,26 +254,36 @@ export function createReserveFeatureBundle(options: ReserveFeatureBundleOptions)
     syncJoinButtonLabel: syncReserveJoinButtonLabel,
     syncPasswordPrompt: syncReservePasswordPrompt,
   });
-  const { installReserveDomEventHooks } = createReserveDomEventHooks({
-    onPasswordKey: handleReservePasswordKey,
-    onPasswordSubmit: handleReservePasswordSubmit,
-    onRoomListClick: handleReserveRoomListClick,
-    onRoomListDoubleClick: handleReserveRoomListDoubleClick,
-  });
-  const {
-    patchReserveSpotFeature,
-    shouldContinueReserveStatusWatch,
-  } = createReserveFeaturePatchController({
-    getState: () => getReserveState(),
-    handleConnectingState: handleReserveConnectingState,
-    installDomEventHooks: installReserveDomEventHooks,
-    installSocketCaptureHook: installReserveSocketCaptureHook,
-    isEnabled: options.isReserveEnabled,
-    isRoomFullSuppressed: isReserveJoinedRoomFullSuppressed,
-    shouldWatchRecentCapture: shouldWatchRecentReserveCapture,
-    syncJoinButtonLabel: syncReserveJoinButtonLabel,
-    syncPasswordPrompt: syncReservePasswordPrompt,
-  });
+  function installReserveDomEventHooks(): void {
+    if (domEventsInstalled) {
+      return;
+    }
+    domEventsInstalled = true;
+    document.addEventListener('click', handleReserveRoomListClick, true);
+    document.addEventListener('dblclick', handleReserveRoomListDoubleClick, true);
+    document.addEventListener('click', handleReservePasswordSubmit, true);
+    window.addEventListener('keyup', handleReservePasswordKey, true);
+  }
+
+  function shouldContinueReserveStatusWatch(): boolean {
+    return Boolean(
+      getReserveState()?.active ||
+      isReserveJoinedRoomFullSuppressed() ||
+      shouldWatchRecentReserveCapture()
+    );
+  }
+
+  function patchReserveSpotFeature(): void {
+    if (!options.isReserveEnabled()) {
+      syncReserveJoinButtonLabel();
+      return;
+    }
+    installReserveSocketCaptureHook();
+    syncReserveJoinButtonLabel();
+    syncReservePasswordPrompt();
+    handleReserveConnectingState();
+    installReserveDomEventHooks();
+  }
 
   return {
     clearReservePasswordPromptPending,

@@ -7,10 +7,10 @@ import {
   TOUCH_LOBBY_CHAT_PROMPT,
 } from '../config/qolbox-constants';
 import { focusElementWithoutScroll } from '../dom/dom-helpers';
+import { isTabbableElement } from '../dom/element-guards';
 import { isNativeTouchLobbyChatPrompt } from '../hitbox/mobile-controls-adapter';
 import { createChatInputController } from './chat-input-controls';
 import { createGameplayBackgroundFocusController } from './gameplay-background-focus';
-import { createRenderCanvasFocusController } from './render-canvas-focus';
 import { expandNativeChatAlias } from './slash-command-interceptor';
 
 interface InputFocusFeatureBundleOptions {
@@ -22,10 +22,29 @@ interface InputFocusFeatureBundleOptions {
 }
 
 export function createInputFocusFeatureBundle(options: InputFocusFeatureBundleOptions) {
-  const { focusActiveRenderCanvas, resetBrowserScroll } = createRenderCanvasFocusController({
-    focusElementWithoutScroll,
-    getActiveRenderCanvas: options.getActiveRenderCanvas,
-  });
+  function focusActiveRenderCanvas(): void {
+    const canvas = options.getActiveRenderCanvas();
+    if (!canvas) {
+      return;
+    }
+
+    if (isTabbableElement(canvas) && !canvas.hasAttribute('tabindex')) {
+      canvas.tabIndex = -1;
+    }
+
+    focusElementWithoutScroll(canvas);
+  }
+
+  function resetBrowserScroll(): void {
+    try {
+      window.scrollTo(0, 0);
+    } catch {
+      // Ignore scroll failures in older userscript engines.
+    }
+
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }
 
   const chatInput = createChatInputController({
     chatInputSelector: CHAT_INPUT_SELECTOR,

@@ -4,6 +4,7 @@ import { installPlayerJoinHook } from '../hitbox/player-join-hooks';
 import {
   isNativeObject,
   readNativeProperty,
+  replaceNativeReflectProperty,
   setNativeReflectProperty,
 } from '../hitbox/native-access';
 import {
@@ -47,7 +48,7 @@ function parseQuotedName(value: string): ParsedBlacklistName {
   const match = trimmed.match(/^(["'])(.*)\1$/);
   return {
     quoted: Boolean(match),
-    value: (match ? match[2] : trimmed).replace(/\s+/g, ' ').trim(),
+    value: (match?.[2] ?? trimmed).replace(/\s+/g, ' ').trim(),
   };
 }
 
@@ -125,7 +126,7 @@ function getPartialCurrentPlayerMessage(requestedName: string, matches: readonly
 function getNativeBlacklistStatusName(line: unknown): string | null {
   const text = String(line || '').replace(/^\s*\*\s*/, '').replace(/\s+/g, ' ').trim();
   const match = text.match(/^(.+?) has (?:joined the game|been banned from this room|left the game)\.?$/i);
-  return match?.[1].trim() || null;
+  return match?.[1]?.trim() || null;
 }
 
 export function createLobbyBlacklistController(options: LobbyBlacklistOptions) {
@@ -171,7 +172,9 @@ export function createLobbyBlacklistController(options: LobbyBlacklistOptions) {
     }
 
     setNativeReflectProperty(wrappedBlacklistChatLineFilter, '__qolboxOriginal', nativeWriteChat);
-    setNativeReflectProperty(session, 'vG', wrappedBlacklistChatLineFilter);
+    if (!replaceNativeReflectProperty(session, 'vG', wrappedBlacklistChatLineFilter)) {
+      return;
+    }
     setNativeReflectProperty(session, BLACKLIST_CHAT_FILTER_FLAG, true);
   }
 
@@ -218,7 +221,7 @@ export function createLobbyBlacklistController(options: LobbyBlacklistOptions) {
       if (banPlayer(session, id)) {
         banned += 1;
         scheduleActiveMatchPlayerRemoval(session, id);
-        options.showStatus(`Banned blacklisted player ${playerName || 'Player'}.`, session);
+        options.showStatus(`Automatically banned blacklisted player ${playerName || 'Player'}.`, session);
       } else {
         attemptedPlayers.delete(attemptKey);
         options.showStatus(`Could not ban blacklisted player ${playerName || 'Player'}.`, session);
@@ -354,14 +357,14 @@ export function createLobbyBlacklistController(options: LobbyBlacklistOptions) {
       return addBlacklistName(trimmed);
     }
 
-    const commandMatch = trimmed.match(/^(clear|on|off)$/i);
-    if (commandMatch?.[1].toLowerCase() === 'clear') {
+    const commandName = trimmed.match(/^(clear|on|off)$/i)?.[1]?.toLowerCase();
+    if (commandName === 'clear') {
       return clearBlacklist();
     }
-    if (commandMatch?.[1].toLowerCase() === 'on') {
+    if (commandName === 'on') {
       return setBlacklistEnforcement(true);
     }
-    if (commandMatch?.[1].toLowerCase() === 'off') {
+    if (commandName === 'off') {
       return setBlacklistEnforcement(false);
     }
 

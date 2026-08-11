@@ -53,13 +53,13 @@ export function focusElementWithoutScroll(element: unknown): void {
 }
 
 export function keepOutOfBrowserTabOrder(element: unknown): void {
-  if (isTabbableElement(element)) {
+  if (isTabbableElement(element) && element.tabIndex !== -1) {
     element.tabIndex = -1;
   }
 }
 
 export function keepInBrowserTabOrder(element: unknown): void {
-  if (isTabbableElement(element)) {
+  if (isTabbableElement(element) && element.tabIndex !== 0) {
     element.tabIndex = 0;
   }
 }
@@ -69,7 +69,7 @@ function matchesElementOrDescendant(node: Node | null, selector: string): boolea
     return false;
   }
 
-  return node.matches(selector) || Boolean(node.closest(selector)) || Boolean(node.querySelector(selector));
+  return node.matches(selector) || Boolean(node.querySelector(selector));
 }
 
 export function mutationTouchesSelector(record: MutationRecord, selector: string): boolean {
@@ -80,7 +80,7 @@ export function mutationTouchesSelector(record: MutationRecord, selector: string
         ? record.target.parentElement
         : null;
 
-  if (matchesElementOrDescendant(targetElement, selector)) {
+  if (targetElement?.matches(selector)) {
     return true;
   }
 

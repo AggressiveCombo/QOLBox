@@ -18,6 +18,8 @@ interface AudioFeatureBundleOptions {
   getActiveRenderMode(): string;
   isAudioEnabled(): boolean;
   isChatInput(target: unknown): boolean;
+  playCustomSound(howl: unknown): number | null;
+  stopCustomSound(howl: unknown, id?: unknown): boolean;
   isReserveRetryAudioSuppressed(): boolean;
   resetBrowserScroll(): void;
   scheduleUiWork(options: ScheduledUiWorkRequest): void;
@@ -26,6 +28,8 @@ interface AudioFeatureBundleOptions {
 export function createAudioFeatureBundle(options: AudioFeatureBundleOptions) {
   const gameVolume = createGameVolumeController({
     isAudioEnabled: options.isAudioEnabled,
+    playCustomSound: options.playCustomSound,
+    stopCustomSound: options.stopCustomSound,
     isReserveRetryAudioSuppressed: options.isReserveRetryAudioSuppressed,
   });
 

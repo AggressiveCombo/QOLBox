@@ -49,9 +49,9 @@ export const FULLSCREEN_LAYOUT_TARGET_SELECTOR = [
   '#backgroundImage',
   FULLSCREEN_RENDER_LAYER_SELECTOR,
   FULLSCREEN_RENDER_CANVAS_SELECTOR,
-  '.inGameCSS',
   '.scores',
   '.spectateControls',
+  '.rightClickMenu',
 ].join(', ');
 export const GAMEPLAY_FOCUS_EXCLUSION_SELECTOR = [
   CHAT_INPUT_SELECTOR,
@@ -90,6 +90,10 @@ export const FEATURE_PATCH_TARGET_SELECTOR = [
   '.roomListContainer',
   '.roomListContainer .scrollBox tr',
   '.roomListContainer .bottomButton.right',
+  '.mapListContainer',
+  '.mapListContainer .topBar',
+  '.mapListContainer .dropdownContainer .element',
+  '.mapListContainer .secondaryContainer .secondaryElement',
   '.passwordWindowContainer',
   '.connectingWindowContainer',
   '.lobbyContainer',

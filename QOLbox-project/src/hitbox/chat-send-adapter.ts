@@ -1,4 +1,11 @@
-import { isNativeObject, readNativeProperty, setNativeReflectProperty } from './native-access';
+import {
+  isNativeObject,
+  readNativeProperty,
+  replaceNativeReflectProperty,
+  setNativeReflectProperty,
+} from './native-access';
+import { isCallable } from '../utils/object-properties';
+import { HITBOX_NATIVE } from './native-contract';
 
 type NativeCallable = (...args: unknown[]) => unknown;
 
@@ -12,10 +19,6 @@ export interface NativeChatSendContext {
 
 interface NativeChatSendOptions {
   handleSend(context: NativeChatSendContext): unknown;
-}
-
-function isNativeCallable(value: unknown): value is NativeCallable {
-  return typeof value === 'function';
 }
 
 function getAccurateNativeHelpText(text: unknown): unknown {
@@ -39,8 +42,8 @@ function callNativeChatSendWithSettingsHelpCorrection(
   message: unknown,
   rest: readonly unknown[]
 ): unknown {
-  const nativeShowStatus = readNativeProperty(session, 'vG');
-  if (!isNativeObject(session) || !isNativeCallable(nativeShowStatus)) {
+  const nativeShowStatus = readNativeProperty(session, HITBOX_NATIVE.session.showStatus);
+  if (!isNativeObject(session) || !isCallable(nativeShowStatus)) {
     return callNativeChatSend(nativeSendChat, session, message, rest);
   }
 
@@ -66,8 +69,8 @@ export function installNativeChatSendInterceptor(session: unknown, options: Nati
     return false;
   }
 
-  const nativeSendChat = readNativeProperty(session, 'CJ');
-  if (!isNativeCallable(nativeSendChat) || readNativeProperty(session, '__qolboxSlashCommandsPatched')) {
+  const nativeSendChat = readNativeProperty(session, HITBOX_NATIVE.session.chatSend);
+  if (!isCallable(nativeSendChat) || readNativeProperty(session, '__qolboxSlashCommandsPatched')) {
     return false;
   }
 
@@ -82,7 +85,9 @@ export function installNativeChatSendInterceptor(session: unknown, options: Nati
     });
   };
 
-  setNativeReflectProperty(session, 'CJ', wrappedSendChat);
+  if (!replaceNativeReflectProperty(session, HITBOX_NATIVE.session.chatSend, wrappedSendChat)) {
+    return false;
+  }
   setNativeReflectProperty(session, '__qolboxSlashCommandsPatched', true);
   setNativeReflectProperty(session, '__qolboxSlashCommandsOriginalCJ', nativeSendChat);
   return true;

@@ -10,15 +10,34 @@ export function isNativeReflectTarget(value: unknown): value is NativeReflectTar
 }
 
 export function readNativeProperty(source: unknown, property: PropertyKey): unknown {
-  return isNativeObject(source) ? Reflect.get(source, property) : undefined;
+  try {
+    return isNativeObject(source) ? Reflect.get(source, property) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function readNativeReflectProperty(source: unknown, property: PropertyKey): unknown {
-  return isNativeReflectTarget(source) ? Reflect.get(source, property) : undefined;
+  try {
+    return isNativeReflectTarget(source) ? Reflect.get(source, property) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function setNativeReflectProperty(source: unknown, property: PropertyKey, value: unknown): boolean {
-  return isNativeReflectTarget(source) && Reflect.set(source, property, value);
+  try {
+    return isNativeReflectTarget(source) && Reflect.set(source, property, value);
+  } catch {
+    return false;
+  }
+}
+
+export function replaceNativeReflectProperty(source: unknown, property: PropertyKey, value: unknown): boolean {
+  return (
+    setNativeReflectProperty(source, property, value) &&
+    readNativeReflectProperty(source, property) === value
+  );
 }
 
 export function readNativePath(source: unknown, path: readonly PropertyKey[]): unknown {
@@ -47,4 +66,12 @@ export function callNativeMethod(
   }
 
   return { called: true, result: Reflect.apply(method, source, [...args]) };
+}
+
+export function callNativeMethodSafely(source: unknown, methodName: PropertyKey, args: readonly unknown[] = []): unknown {
+  try {
+    return callNativeMethod(source, methodName, args).result;
+  } catch {
+    return undefined;
+  }
 }

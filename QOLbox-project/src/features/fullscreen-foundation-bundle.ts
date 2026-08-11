@@ -8,8 +8,6 @@ import {
   FULLSCREEN_RENDER_CANVAS_SELECTOR,
 } from '../config/qolbox-constants';
 import { hasVisibleLayer, isElementVisible } from '../dom/dom-helpers';
-import { createFullscreenMetricsAdapter } from '../hitbox/fullscreen-metrics-adapter';
-import { hasNativeGameObject } from '../hitbox/native-game-adapter';
 import { createFullscreenGeometry } from './fullscreen-geometry';
 import { createFullscreenNativeLayoutFallback } from './fullscreen-native-layout-fallback';
 import { createFullscreenRenderState } from './fullscreen-render-state';
@@ -38,12 +36,6 @@ export function createFullscreenFoundationBundle() {
     getActiveRenderMode: renderState.getActiveRenderMode,
     getBaseGameSize: renderState.getBaseGameSize,
     getViewportSize: renderState.getViewportSize,
-    hasNativeGame: hasNativeGameObject,
-  });
-
-  const metricsAdapter = createFullscreenMetricsAdapter({
-    getFullscreenDimensions: geometry.getFullscreenDimensions,
-    getNativeUiZoom: geometry.getNativeUiZoom,
   });
 
   return {
@@ -51,6 +43,5 @@ export function createFullscreenFoundationBundle() {
     ...nativeLayoutFallback,
     ...styleManager,
     ...geometry,
-    ...metricsAdapter,
   };
 }

@@ -1,8 +1,10 @@
 import {
   isNativeObject,
   readNativeProperty,
+  replaceNativeReflectProperty,
   setNativeReflectProperty,
 } from './native-access';
+import { HITBOX_NATIVE } from './native-contract';
 
 type NativeCallable = (...args: unknown[]) => unknown;
 
@@ -16,7 +18,7 @@ export function installPlayerJoinHook(
     return false;
   }
 
-  const nativePlayerJoined = readNativeProperty(session, 'VW');
+  const nativePlayerJoined = readNativeProperty(session, HITBOX_NATIVE.session.playerJoined);
   if (typeof nativePlayerJoined !== 'function') {
     return false;
   }
@@ -30,7 +32,9 @@ export function installPlayerJoinHook(
     return result;
   };
 
-  setNativeReflectProperty(session, 'VW', wrappedPlayerJoined);
+  if (!replaceNativeReflectProperty(session, HITBOX_NATIVE.session.playerJoined, wrappedPlayerJoined)) {
+    return false;
+  }
   setNativeReflectProperty(session, PLAYER_JOIN_HOOK_MARKER, true);
   return true;
 }

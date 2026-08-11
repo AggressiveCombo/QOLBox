@@ -51,7 +51,7 @@ export function createFeatureSettingsController(options: FeatureSettingsControll
 
     if (options.isOnboardingComplete()) {
       options.onApplyPersistentFeatures();
-      options.onScheduleUiWork({ force: true, features: true, passes: options.resizeSettlePasses });
+      options.onScheduleUiWork({ features: true, passes: options.resizeSettlePasses });
     }
 
     options.onRenderMenu();

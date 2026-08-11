@@ -5,9 +5,13 @@ AGENTS.md
 goal.md
 progress.md
 
-# Local validation only
+# Local audit and validation code
+.github/
+docs/audits/
 QOLbox.regression-check.mjs
 live-checks/
+
+# Local validation output
 test-results/
 playwright-report/
 output/playwright/

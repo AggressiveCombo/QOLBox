@@ -40,6 +40,10 @@ export function createFullscreenStyleManager() {
       return;
     }
 
+    if (element.style.getPropertyValue(property) === value && element.style.getPropertyPriority(property) === 'important') {
+      return;
+    }
+
     rememberFullscreenStyle(element, property);
     element.style.setProperty(property, value, 'important');
   }
@@ -52,7 +56,11 @@ export function createFullscreenStyleManager() {
     const snapshot = fullscreenStyleSnapshots.get(element);
     for (const property of properties) {
       const original = snapshot?.get(property);
-      if (original?.hadValue) {
+      if (!original) {
+        continue;
+      }
+
+      if (original.hadValue) {
         element.style.setProperty(property, original.value, original.priority);
       } else {
         element.style.removeProperty(property);

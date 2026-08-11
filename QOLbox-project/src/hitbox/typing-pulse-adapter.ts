@@ -1,10 +1,10 @@
-import { isNativeObject, readNativeProperty, setNativeReflectProperty } from './native-access';
-
-type NativeCallable = (...args: unknown[]) => unknown;
-
-function isNativeCallable(value: unknown): value is NativeCallable {
-  return typeof value === 'function';
-}
+import {
+  isNativeObject,
+  readNativeProperty,
+  replaceNativeReflectProperty,
+  setNativeReflectProperty,
+} from './native-access';
+import { isCallable } from '../utils/object-properties';
 
 function getNativeLobbyUi(session: unknown): unknown | null {
   // `TJ` is the observed native lobby UI object; `$W` fires when a lobby-chat typing pulse is seen.
@@ -26,7 +26,7 @@ export function installNativeTypingPulseHook(
   }
 
   const nativeTypingPulse = readNativeProperty(lobbyUi, '$W');
-  if (!isNativeCallable(nativeTypingPulse)) {
+  if (!isCallable(nativeTypingPulse)) {
     return false;
   }
 
@@ -35,7 +35,9 @@ export function installNativeTypingPulseHook(
     return Reflect.apply(nativeTypingPulse, this, [playerId, ...rest]);
   };
 
-  setNativeReflectProperty(lobbyUi, '$W', wrappedTypingPulse);
+  if (!replaceNativeReflectProperty(lobbyUi, '$W', wrappedTypingPulse)) {
+    return false;
+  }
   setNativeReflectProperty(lobbyUi, '__qolboxTypingIndicatorOriginal', nativeTypingPulse);
   setNativeReflectProperty(lobbyUi, '__qolboxTypingIndicatorPatched', true);
   return true;

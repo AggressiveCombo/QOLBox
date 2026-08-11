@@ -4,10 +4,13 @@ import {
   RESERVE_RETRY_DELAY_MS,
   TYPING_INDICATOR_TIMEOUT_MS,
 } from '../config/qolbox-constants';
+import { isRecord } from '../utils/object-properties';
+import { getLocalStorageItem, setLocalStorageItem } from '../utils/local-storage';
 
 export const ADVANCED_RESERVE_RETRY_INTERVAL_MS = 'reserveRetryIntervalMs';
 export const ADVANCED_COMMAND_ALIASES = 'commandAliases';
 export const ADVANCED_BLACKLIST_ENFORCEMENT = 'blacklistEnforcement';
+export const ADVANCED_EDITOR_MAP_READABLE_FILES = 'editorMapReadableFiles';
 export const ADVANCED_ALERT_DELAY_MS = 'gameStartAlertDelayMs';
 export const ADVANCED_ALERT_FLASH_INTERVAL_MS = 'gameStartAlertFlashIntervalMs';
 export const ADVANCED_TYPING_DURATION_MS = 'typingIndicatorDurationMs';
@@ -16,6 +19,7 @@ export type AdvancedSettingKey =
   | typeof ADVANCED_RESERVE_RETRY_INTERVAL_MS
   | typeof ADVANCED_COMMAND_ALIASES
   | typeof ADVANCED_BLACKLIST_ENFORCEMENT
+  | typeof ADVANCED_EDITOR_MAP_READABLE_FILES
   | typeof ADVANCED_ALERT_DELAY_MS
   | typeof ADVANCED_ALERT_FLASH_INTERVAL_MS
   | typeof ADVANCED_TYPING_DURATION_MS;
@@ -26,6 +30,7 @@ export type AdvancedSettings = {
   [ADVANCED_RESERVE_RETRY_INTERVAL_MS]: number;
   [ADVANCED_COMMAND_ALIASES]: boolean;
   [ADVANCED_BLACKLIST_ENFORCEMENT]: boolean;
+  [ADVANCED_EDITOR_MAP_READABLE_FILES]: boolean;
   [ADVANCED_ALERT_DELAY_MS]: number;
   [ADVANCED_ALERT_FLASH_INTERVAL_MS]: number;
   [ADVANCED_TYPING_DURATION_MS]: number;
@@ -84,6 +89,13 @@ export const ADVANCED_SETTING_DEFINITIONS: readonly AdvancedSettingDefinition[] 
     defaultValue: true,
   },
   {
+    key: ADVANCED_EDITOR_MAP_READABLE_FILES,
+    kind: 'boolean',
+    title: 'Readable map exports',
+    description: 'Export readable JSON instead of compact map data. JSON import is always supported.',
+    defaultValue: true,
+  },
+  {
     key: ADVANCED_ALERT_DELAY_MS,
     kind: 'number',
     title: 'Tab alert delay',
@@ -118,10 +130,6 @@ export const ADVANCED_SETTING_DEFINITIONS: readonly AdvancedSettingDefinition[] 
   },
 ];
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 function clampNumber(value: number, definition: NumberAdvancedSettingDefinition): number {
   const stepped = Math.round(value / definition.step) * definition.step;
   return Math.min(definition.max, Math.max(definition.min, stepped));
@@ -145,7 +153,13 @@ export function sanitizeAdvancedSetting(
       return Number.isFinite(numericValue) ? clampNumber(numericValue, definition) : definition.defaultValue;
     }
     case 'boolean':
-      return value === true || value === 'true';
+      if (value === true || value === 'true') {
+        return true;
+      }
+      if (value === false || value === 'false') {
+        return false;
+      }
+      return definition.defaultValue;
   }
 }
 
@@ -153,7 +167,7 @@ export function loadAdvancedSettings(): AdvancedSettings {
   const settings = getDefaultAdvancedSettings();
 
   try {
-    const rawSettings = localStorage.getItem(ADVANCED_SETTINGS_KEY);
+    const rawSettings = getLocalStorageItem(ADVANCED_SETTINGS_KEY);
     if (!rawSettings) {
       return settings;
     }
@@ -165,7 +179,10 @@ export function loadAdvancedSettings(): AdvancedSettings {
 
     for (const definition of ADVANCED_SETTING_DEFINITIONS) {
       if (Object.prototype.hasOwnProperty.call(parsedSettings, definition.key)) {
-        settings[definition.key] = sanitizeAdvancedSetting(definition, parsedSettings[definition.key]) as never;
+        const storedValue = parsedSettings[definition.key];
+        if (definition.kind !== 'boolean' || typeof storedValue === 'boolean') {
+          settings[definition.key] = sanitizeAdvancedSetting(definition, storedValue) as never;
+        }
       }
     }
   } catch {
@@ -176,11 +193,7 @@ export function loadAdvancedSettings(): AdvancedSettings {
 }
 
 export function saveAdvancedSettings(settings: AdvancedSettings): void {
-  try {
-    localStorage.setItem(ADVANCED_SETTINGS_KEY, JSON.stringify(settings));
-  } catch {
-    // Storage may be unavailable in privacy-restricted browser contexts.
-  }
+  setLocalStorageItem(ADVANCED_SETTINGS_KEY, JSON.stringify(settings));
 }
 
 export function getAdvancedSettingDefinition(key: string | undefined): AdvancedSettingDefinition | null {
@@ -211,4 +224,10 @@ export function isAdvancedBlacklistEnforcementEnabled(
   settings: AdvancedSettings = loadAdvancedSettings()
 ): boolean {
   return settings[ADVANCED_BLACKLIST_ENFORCEMENT];
+}
+
+export function areAdvancedEditorMapReadableFilesEnabled(
+  settings: AdvancedSettings = loadAdvancedSettings()
+): boolean {
+  return settings[ADVANCED_EDITOR_MAP_READABLE_FILES];
 }

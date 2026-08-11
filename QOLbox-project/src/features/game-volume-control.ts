@@ -11,6 +11,8 @@ import { createGameVolumeMenuController } from './game-volume-menu-control';
 
 interface GameVolumeControllerOptions {
   isAudioEnabled(): boolean;
+  playCustomSound(howl: unknown): number | null;
+  stopCustomSound(howl: unknown, id?: unknown): boolean;
   isReserveRetryAudioSuppressed(): boolean;
 }
 
@@ -19,6 +21,8 @@ export function createGameVolumeController(options: GameVolumeControllerOptions)
   const howlerAudio = createHowlerGameAudioAdapter({
     getGameVolumeScalar: () => (options.isAudioEnabled() ? percentToGameScalar(gamePercent) : 1),
     isAudioEnabled: options.isAudioEnabled,
+    playCustomSound: options.playCustomSound,
+    stopCustomSound: options.stopCustomSound,
     shouldSuppressReserveRetryAudio: options.isReserveRetryAudioSuppressed,
   });
   const menuController = createGameVolumeMenuController({
@@ -28,12 +32,8 @@ export function createGameVolumeController(options: GameVolumeControllerOptions)
     setGamePercent,
   });
 
-  function updateGameVolumeText(): void {
-    menuController.updateGameVolumeText();
-  }
-
   function applyGameVolume(): void {
-    updateGameVolumeText();
+    menuController.updateGameVolumeText();
     howlerAudio.applyGameVolumeToHowls();
   }
 
@@ -41,14 +41,6 @@ export function createGameVolumeController(options: GameVolumeControllerOptions)
     gamePercent = clampPercent(nextPercent, DEFAULT_GAME_PERCENT);
     saveGamePercent(gamePercent);
     applyGameVolume();
-  }
-
-  function patchGameVolumeMenu(): boolean {
-    return menuController.patchGameVolumeMenu();
-  }
-
-  function shouldSuppressReserveRetryAudio(): boolean {
-    return options.isReserveRetryAudioSuppressed();
   }
 
   function hookHowlPrototype(): boolean {
@@ -62,9 +54,10 @@ export function createGameVolumeController(options: GameVolumeControllerOptions)
 
   return {
     applyGameVolume,
+    cleanupGameVolumeMenu: menuController.cleanupGameVolumeMenu,
     hookHowlPrototype,
-    patchGameVolumeMenu,
+    patchGameVolumeMenu: menuController.patchGameVolumeMenu,
     setGamePercent,
-    shouldSuppressReserveRetryAudio,
+    shouldSuppressReserveRetryAudio: options.isReserveRetryAudioSuppressed,
   };
 }

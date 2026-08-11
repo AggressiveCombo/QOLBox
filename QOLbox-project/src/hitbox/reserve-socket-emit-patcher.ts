@@ -1,4 +1,8 @@
-import { readNativeReflectProperty, setNativeReflectProperty } from './native-access';
+import {
+  readNativeReflectProperty,
+  replaceNativeReflectProperty,
+  setNativeReflectProperty,
+} from './native-access';
 
 export type NativeReserveCallable = (...args: unknown[]) => unknown;
 
@@ -32,7 +36,9 @@ export function patchReserveSocketEmitTarget(target: unknown, options: ReserveSo
     return Reflect.apply(baseEmit, this, [eventName, ...args]);
   }
 
-  setNativeReflectProperty(target, 'emit', wrappedReserveEmit);
+  if (!replaceNativeReflectProperty(target, 'emit', wrappedReserveEmit)) {
+    return false;
+  }
   setNativeReflectProperty(target, '__qolboxReservePatched', true);
   setNativeReflectProperty(target, options.originalEmitKey, baseEmit);
   return true;

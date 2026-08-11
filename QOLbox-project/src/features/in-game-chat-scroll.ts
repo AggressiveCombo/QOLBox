@@ -1,6 +1,7 @@
 const CHAT_READING_CLASS = 'qolboxChatReading';
 const CHAT_INTERACTIVE_CLASS = 'qolboxChatInteractive';
 const RESTORED_CHAT_MESSAGE_ATTR = 'data-qolbox-restored-chat-message';
+const JUKEBOX_TITLE_CLASS = 'qolboxInGameJukeboxTitle';
 const MAX_RETAINED_MESSAGES = 1000;
 const RESTORED_HISTORY_DISPLAY_MS = 6500;
 
@@ -10,7 +11,7 @@ interface ChatScrollState {
   focusOutListener: () => void;
   historyInteractionActive: boolean;
   historyHtml: string[];
-  historyNodes: (ChildNode | null)[];
+  historyNodes: ChildNode[];
   historySignatures: string[];
   historyVisibleUntil: number;
   offsetPx: number;
@@ -110,6 +111,27 @@ function getMessageNodes(content: HTMLElement): ChildNode[] {
   return nodes;
 }
 
+function decorateJukeboxMessage(node: Node): void {
+  if (!(node instanceof HTMLElement) || node.querySelector(`.${JUKEBOX_TITLE_CLASS}`)) return;
+  const message = node.querySelector<HTMLElement>(':scope > .message:not(.link)');
+  if (!message || !node.querySelector(':scope > .message.link')) return;
+  const text = message.textContent || '';
+  const titleStart = text.indexOf(' suggests ');
+  if (titleStart < 0) return;
+  const split = titleStart + ' suggests '.length;
+  const title = text.slice(split);
+  if (!title) return;
+  message.textContent = text.slice(0, split);
+  const titleElement = document.createElement('span');
+  titleElement.className = JUKEBOX_TITLE_CLASS;
+  titleElement.textContent = title;
+  message.append(titleElement);
+}
+
+function decorateJukeboxMessages(nodes: readonly Node[]): void {
+  nodes.forEach(decorateJukeboxMessage);
+}
+
 function getMessageHtml(node: Node): string {
   if (node instanceof Element) {
     return node.outerHTML;
@@ -154,7 +176,7 @@ function getOverlapLength(left: readonly string[], right: readonly string[]): nu
 }
 
 function rememberMessageRecords(
-  messages: { html: readonly string[]; nodes?: readonly ChildNode[] },
+  messages: { html: readonly string[]; nodes: readonly ChildNode[] },
   state: ChatScrollState
 ): boolean {
   if (state.restoring) {
@@ -169,10 +191,10 @@ function rememberMessageRecords(
 
   const overlap = getOverlapLength(state.historySignatures, signatures);
   const newHtml = html.slice(overlap);
-  const newNodes = messages.nodes?.slice(overlap) || [];
+  const newNodes = messages.nodes.slice(overlap);
   const newSignatures = signatures.slice(overlap);
   state.historyHtml.push(...newHtml);
-  state.historyNodes.push(...newHtml.map((_, index) => newNodes[index] || null));
+  state.historyNodes.push(...newNodes);
   state.historySignatures.push(...newSignatures);
 
   if (state.historyHtml.length > MAX_RETAINED_MESSAGES) {
@@ -190,29 +212,17 @@ function rememberChatMessages(content: HTMLElement, state: ChatScrollState): voi
     return;
   }
 
+  decorateJukeboxMessages(Array.from(content.children));
   rememberMessageRecords(getContentMessages(content), state);
 }
 
 function rememberAddedChatNodes(nodes: readonly Node[], state: ChatScrollState): void {
+  decorateJukeboxMessages(nodes);
   const retainedNodes = nodes.filter(node => !isRestoredChatMessageNode(node, state) && (node.textContent || '').trim()) as ChildNode[];
   const html = retainedNodes.map(getMessageHtml);
   if (rememberMessageRecords({ html, nodes: retainedNodes }, state)) {
     state.historyVisibleUntil = performance.now() + RESTORED_HISTORY_DISPLAY_MS;
   }
-}
-
-function appendRetainedHtmlFallback(content: HTMLElement, html: string): void {
-  const template = document.createElement('template') as HTMLTemplateElement;
-  template.innerHTML = html;
-
-  if (template.content) {
-    content.appendChild(template.content.cloneNode(true));
-    return;
-  }
-
-  const fallback = document.createElement('span');
-  fallback.innerHTML = html;
-  content.appendChild(fallback);
 }
 
 function getNodePath(root: Node, target: Node): number[] | null {
@@ -309,12 +319,6 @@ function restoreRetainedChatMessages(content: HTMLElement, state: ChatScrollStat
     const retainedNode = state.historyNodes[index];
     if (retainedNode) {
       content.appendChild(cloneRetainedMessageNode(retainedNode, state));
-    } else {
-      const childCountBeforeAppend = content.childNodes.length;
-      appendRetainedHtmlFallback(content, state.historyHtml[index]);
-      for (const node of Array.from(content.childNodes).slice(childCountBeforeAppend)) {
-        markRestoredChatMessageNode(node, state);
-      }
     }
   }
   state.restoring = false;
@@ -326,7 +330,7 @@ function clearRestoredChatDom(content: HTMLElement, state: ChatScrollState, forc
     return;
   }
 
-  if (state.restoredDomActive || state.historyInteractionActive) {
+  if (state.restoredDomActive) {
     state.restoring = true;
     content.innerHTML = '';
     state.restoring = false;
@@ -687,11 +691,9 @@ export function createInGameChatScrollController(options: InGameChatScrollContro
     chatObserver.observe(chat, {
       attributes: true,
       attributeFilter: ['class', 'style'],
+      childList: true,
+      subtree: true,
     });
-    const content = getChatContent(chat);
-    if (content) {
-      chatObserver.observe(content, { childList: true });
-    }
     chatObservers.set(chat, chatObserver);
     syncChat(chat);
   }
@@ -708,6 +710,12 @@ export function createInGameChatScrollController(options: InGameChatScrollContro
 
   function patchInGameChatScroll(): void {
     installKeyHooks();
+
+    for (const chat of Array.from(patchedChats)) {
+      if (!chat.isConnected) {
+        unpatchChatScroll(chat);
+      }
+    }
 
     if (!options.isChatFeatureEnabled()) {
       cleanupInGameChatScroll();

@@ -19,6 +19,13 @@ export function createReserveSelectionState() {
   let selectedWasFull = false;
   let selectedWasUnavailable = false;
 
+  function clearReserveSelectedRoom(): void {
+    selectedRow = null;
+    selectedSignature = '';
+    selectedWasFull = false;
+    selectedWasUnavailable = false;
+  }
+
   function rememberReserveSelectedRoom(row: unknown): Element | null {
     if (!(row instanceof Element) || !row.isConnected) {
       return null;
@@ -67,6 +74,7 @@ export function createReserveSelectionState() {
   }
 
   return {
+    clearReserveSelectedRoom,
     getReserveSelectedRoomRow,
     getReserveSelectedRoomState,
     rememberReserveSelectedRoom,

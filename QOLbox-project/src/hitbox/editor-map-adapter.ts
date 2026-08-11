@@ -10,16 +10,43 @@ import {
 const EDITOR_MAP_STATE_PATH = ['multiplayerSession', 'TJ', 'JD', 'tP'] as const;
 const EDITOR_FILE_MENU_SELECTOR = '#editorContainer .fileMenu';
 const EDITOR_MENU_ITEM_SELECTOR = '.item';
+const EDITOR_MAP_TITLE_FIELDS: readonly PropertyKey[] = ['name', 'title', 'label', 'mapname', 'mapName', 'EN'];
+const EDITOR_MAP_AUTHOR_FIELDS: readonly PropertyKey[] = ['authorname', 'authorName', 'author', 'BN'];
 
 type NativeFunction = (...args: unknown[]) => unknown;
 
-function getEditorMapState(): unknown {
+export interface EditorMapMetadata {
+  title: string | null;
+  author: string | null;
+}
+
+function getEditorMapEntry(): unknown {
   const maps = readNativePath(window, EDITOR_MAP_STATE_PATH);
   if (!Array.isArray(maps)) {
     return null;
   }
 
-  return readNativeProperty(maps[0], 'state') || null;
+  return maps[0] || null;
+}
+
+function getEditorMapState(): unknown {
+  return readNativeProperty(getEditorMapEntry(), 'state') || null;
+}
+
+function readMetadataString(source: unknown, fields: readonly PropertyKey[]): string | null {
+  for (const field of fields) {
+    const value = readNativeProperty(source, field);
+    if (typeof value !== 'string' && typeof value !== 'number') {
+      continue;
+    }
+
+    const text = String(value).replace(/\s+/g, ' ').trim();
+    if (text) {
+      return text;
+    }
+  }
+
+  return null;
 }
 
 function isNativeFunction(value: unknown): value is NativeFunction {
@@ -65,7 +92,9 @@ function replaceNativeMethod(
   }
 
   return () => {
-    setNativeReflectProperty(target, methodName, original);
+    if (readNativeProperty(target, methodName) === replacement) {
+      setNativeReflectProperty(target, methodName, original);
+    }
   };
 }
 
@@ -91,7 +120,7 @@ function exportCurrentEditorMapViaNativePlayClone(): string | null {
     capturedMapState = getCapturedMapState(candidate) || capturedMapState;
   };
 
-  const restores = [
+  const replacements = [
     replaceNativeMethod(lobbyState, 'tU', (maps: unknown) => {
       if (Array.isArray(maps)) {
         captureMap(maps[0]);
@@ -101,9 +130,13 @@ function exportCurrentEditorMapViaNativePlayClone(): string | null {
       captureMap(map);
     }),
     replaceNativeMethod(session, '_J', () => undefined),
-  ].filter((restore): restore is () => void => typeof restore === 'function');
+  ];
 
-  if (!restores.length) {
+  const installedRestores = replacements.filter((restore): restore is () => void => typeof restore === 'function');
+  if (installedRestores.length !== replacements.length) {
+    for (const restore of installedRestores.reverse()) {
+      restore();
+    }
     return null;
   }
 
@@ -113,7 +146,7 @@ function exportCurrentEditorMapViaNativePlayClone(): string | null {
   } catch {
     return null;
   } finally {
-    for (const restore of restores.reverse()) {
+    for (const restore of installedRestores.reverse()) {
       try {
         restore();
       } catch {
@@ -140,6 +173,14 @@ function refreshEditorAfterMapImport(): void {
 
 export function exportEditorMapData(): string | null {
   return exportCurrentEditorMapViaNativePlayClone() || callMapExport(getEditorMapState());
+}
+
+export function getEditorMapMetadata(): EditorMapMetadata {
+  const mapEntry = getEditorMapEntry();
+  return {
+    title: readMetadataString(mapEntry, EDITOR_MAP_TITLE_FIELDS),
+    author: readMetadataString(mapEntry, EDITOR_MAP_AUTHOR_FIELDS),
+  };
 }
 
 export function importEditorMapData(mapData: string): boolean {

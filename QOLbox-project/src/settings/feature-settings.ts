@@ -1,3 +1,6 @@
+import { isRecord } from '../utils/object-properties';
+import { getLocalStorageItem, setLocalStorageItem } from '../utils/local-storage';
+
 export const FEATURE_FULLSCREEN = 'fullscreen';
 export const FEATURE_AUDIO = 'audio';
 export const FEATURE_RESERVE = 'reserve';
@@ -6,6 +9,7 @@ export const FEATURE_GAME_START_ALERT = 'gameStartAlert';
 export const FEATURE_MOBILE_GRAB = 'mobileGrab';
 export const FEATURE_LOBBY_COMMANDS = 'lobbyCommands';
 export const FEATURE_EDITOR_MAP_TRANSFER = 'editorMapTransfer';
+export const FEATURE_EDITOR_FORCE_SAVE = 'editorForceSave';
 
 export type FeatureKey =
   | typeof FEATURE_FULLSCREEN
@@ -15,7 +19,8 @@ export type FeatureKey =
   | typeof FEATURE_GAME_START_ALERT
   | typeof FEATURE_MOBILE_GRAB
   | typeof FEATURE_LOBBY_COMMANDS
-  | typeof FEATURE_EDITOR_MAP_TRANSFER;
+  | typeof FEATURE_EDITOR_MAP_TRANSFER
+  | typeof FEATURE_EDITOR_FORCE_SAVE;
 
 export interface FeatureDefinition {
   key: FeatureKey;
@@ -40,7 +45,7 @@ export const FEATURE_DEFINITIONS: readonly FeatureDefinition[] = [
     key: FEATURE_AUDIO,
     title: 'Audio Controls',
     shortTitle: 'Audio',
-    summary: 'Remember volume choices, make the sliders easier to adjust, and keep jukebox mute behavior stable.',
+    summary: 'Control volume and mute states.',
   },
   {
     key: FEATURE_RESERVE,
@@ -72,13 +77,19 @@ export const FEATURE_DEFINITIONS: readonly FeatureDefinition[] = [
     shortTitle: 'Commands',
     summary: 'Add lobby controls, special player targets, and access to normal and hidden host settings.',
     onboardingText:
-      'Use /spec, /join, /red, /blue, /switch, /lock, /unlock, /host, /start, /end, /restart, /settings all, and /blacklist. Special targets: /spec all|playing, /join all|spectators, and /red or /blue all|playing|spectators. Named targets for /spec, /join, /red, /blue, /host, /kick, and /ban accept exact or unique partial player names. /blacklist stores exact names only.',
+      'Use /spec, /join, /red, /blue, /switch, /lock, /unlock, /host, /start, /end, /restart, /record, /settings all, and /blacklist. With Command aliases enabled, /r runs /restart and /rec runs /record. Special targets: /spec all|playing, /join all|spectators, and /red or /blue all|playing|spectators. Named targets for /spec, /join, /red, /blue, /host, /kick, and /ban accept exact or unique partial player names. /blacklist stores exact names only.',
   },
   {
     key: FEATURE_EDITOR_MAP_TRANSFER,
     title: 'Map Import and Export',
     shortTitle: 'Map Files',
     summary: 'Add Import and Export to the editor File menu for saving map files on your computer.',
+  },
+  {
+    key: FEATURE_EDITOR_FORCE_SAVE,
+    title: 'Enable Editor Save',
+    shortTitle: 'Editor Save',
+    summary: 'Keep native Save available for loaded maps.',
   },
 ];
 
@@ -91,11 +102,8 @@ const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
   [FEATURE_MOBILE_GRAB]: true,
   [FEATURE_LOBBY_COMMANDS]: true,
   [FEATURE_EDITOR_MAP_TRANSFER]: true,
+  [FEATURE_EDITOR_FORCE_SAVE]: true,
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
 
 export function getDefaultFeatureSettings(): FeatureSettings {
   return { ...DEFAULT_FEATURE_SETTINGS };
@@ -105,7 +113,7 @@ export function loadFeatureSettings(): FeatureSettings {
   const defaults = getDefaultFeatureSettings();
 
   try {
-    const rawSettings = localStorage.getItem(FEATURE_SETTINGS_KEY);
+    const rawSettings = getLocalStorageItem(FEATURE_SETTINGS_KEY);
     if (!rawSettings) {
       return defaults;
     }
@@ -117,7 +125,10 @@ export function loadFeatureSettings(): FeatureSettings {
 
     for (const feature of FEATURE_DEFINITIONS) {
       if (Object.prototype.hasOwnProperty.call(parsedSettings, feature.key)) {
-        defaults[feature.key] = parsedSettings[feature.key] !== false;
+        const value = parsedSettings[feature.key];
+        if (typeof value === 'boolean') {
+          defaults[feature.key] = value;
+        }
       }
     }
   } catch {
@@ -128,11 +139,7 @@ export function loadFeatureSettings(): FeatureSettings {
 }
 
 export function saveFeatureSettings(settings: FeatureSettings): void {
-  try {
-    localStorage.setItem(FEATURE_SETTINGS_KEY, JSON.stringify(settings));
-  } catch {
-    // Storage may be unavailable in privacy-restricted browser contexts.
-  }
+  setLocalStorageItem(FEATURE_SETTINGS_KEY, JSON.stringify(settings));
 }
 
 export function isKnownFeature(featureKey: string): featureKey is FeatureKey {

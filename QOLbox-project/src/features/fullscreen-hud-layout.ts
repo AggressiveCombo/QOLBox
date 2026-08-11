@@ -48,14 +48,6 @@ export function createFullscreenHudLayout(options: FullscreenHudLayoutOptions) {
     ]);
   }
 
-  function resetSpectateControlsLayout(spectateControls: Element): void {
-    spectateControlsLayout.resetSpectateControlsLayout(spectateControls);
-  }
-
-  function syncSpectateControlsBottomWithJukebox(): boolean {
-    return spectateControlsLayout.syncSpectateControlsBottomWithJukebox();
-  }
-
   function layoutRelativeHud(_relativeBounds: unknown, dimensions: FullscreenDimensions): void {
     const isLoading = isLoadingScreenVisible();
     const useGameplayHudLayout =
@@ -92,7 +84,7 @@ export function createFullscreenHudLayout(options: FullscreenHudLayoutOptions) {
   return {
     layoutRelativeHud,
     resetScorePanelLayout,
-    resetSpectateControlsLayout,
-    syncSpectateControlsBottomWithJukebox,
+    resetSpectateControlsLayout: spectateControlsLayout.resetSpectateControlsLayout,
+    syncSpectateControlsBottomWithJukebox: spectateControlsLayout.syncSpectateControlsBottomWithJukebox,
   };
 }

@@ -1,15 +1,22 @@
 node_modules/
+QOLBox.test.user.js
 
 # Local Codex/operator notes
 AGENTS.md
 goal.md
 progress.md
 
-# Local validation only
+# Local audit and validation code
+docs/
 live-checks/
+tests/
+scripts/check-live-check-syntax.mjs
+scripts/run-live-checks.mjs
+
+# Local validation output
 test-results/
 playwright-report/
-output/playwright/
+output/
 *.log
 *.trace
 *.har

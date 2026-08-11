@@ -5,7 +5,6 @@ interface FullscreenHookInstallerOptions {
   installChatCommandAliasHooks(): void;
   installChatEscapeHooks(): void;
   installFullscreenMutationObserver(target: Element | null): void;
-  installGameReadyHook(): void;
   installGameStartIndicatorHooks(): void;
   installGameplayBackgroundFocusHooks(): void;
   installQolboxMenuHooks(): void;
@@ -24,7 +23,7 @@ export function createFullscreenHookInstaller(options: FullscreenHookInstallerOp
   let installed = false;
 
   function scheduleResizeSettle(): void {
-    options.scheduleUiWork({ force: true, passes: options.resizeSettlePasses });
+    options.scheduleUiWork({ passes: options.resizeSettlePasses });
   }
 
   function installFullscreenHooks(): void {
@@ -33,12 +32,11 @@ export function createFullscreenHookInstaller(options: FullscreenHookInstallerOp
     }
 
     if (!document.documentElement) {
-      options.scheduleUiWork({ force: true, features: true, passes: options.fullscreenSettlePasses });
+      options.scheduleUiWork({ features: true, passes: options.fullscreenSettlePasses });
       return;
     }
 
     installed = true;
-    options.installGameReadyHook();
     options.installQolboxMenuHooks();
     options.installChatEscapeHooks();
     options.installChatCommandAliasHooks();
@@ -60,19 +58,19 @@ export function createFullscreenHookInstaller(options: FullscreenHookInstallerOp
     window.addEventListener('orientationchange', scheduleResizeSettle, true);
     window.addEventListener(
       'load',
-      () => options.scheduleUiWork({ force: true, features: true, passes: options.fullscreenSettlePasses }),
+      () => options.scheduleUiWork({ features: true, passes: options.fullscreenSettlePasses }),
       true
     );
     window.addEventListener(
       'pageshow',
-      () => options.scheduleUiWork({ force: true, features: true, passes: options.resizeSettlePasses }),
+      () => options.scheduleUiWork({ features: true, passes: options.resizeSettlePasses }),
       true
     );
     document.addEventListener(
       'visibilitychange',
       () => {
         if (!document.hidden) {
-          options.scheduleUiWork({ force: true, features: true, passes: options.resizeSettlePasses });
+          options.scheduleUiWork({ features: true, passes: options.resizeSettlePasses });
         }
       },
       true
@@ -85,7 +83,7 @@ export function createFullscreenHookInstaller(options: FullscreenHookInstallerOp
     if (typeof ResizeObserverConstructor === 'function') {
       options.setFullscreenResizeObserver(
         new ResizeObserverConstructor(() => {
-          options.scheduleUiWork({ force: true, passes: 1 });
+          options.scheduleUiWork({ passes: 1 });
         })
       );
       options.refreshObservedResizeTargets();

@@ -12,6 +12,8 @@ interface GameStartRelayPayload {
   title?: string;
 }
 
+const HITBOX_ORIGIN_PATTERN = /^https:\/\/(www\.)?hitbox\.io$/i;
+
 export interface GameStartDisplayController {
   getTitle(): string;
   postClear(): void;
@@ -60,13 +62,17 @@ export function createGameStartDisplayController(): GameStartDisplayController {
     }
 
     try {
+      const targetOrigin = new URL(document.referrer).origin;
+      if (!HITBOX_ORIGIN_PATTERN.test(targetOrigin)) {
+        return;
+      }
       window.top?.postMessage(
         {
           ...payload,
           feature: 'gameStartIndicator',
           source: 'QOLBox',
         },
-        '*'
+        targetOrigin
       );
     } catch {
       // Cross-origin title relay is best-effort.

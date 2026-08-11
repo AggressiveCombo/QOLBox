@@ -14,6 +14,7 @@ import {
 import {
   QOLBOX_GITHUB_URL,
   QOLBOX_GREASYFORK_URL,
+  QOLBOX_VERSION,
   QOLBOX_VERSION_LABEL,
 } from '../config/qolbox-version';
 import {
@@ -28,19 +29,26 @@ import {
   QOLBOX_MENU_ID,
 } from '../config/qolbox-constants';
 import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
-import { createFirstBootOnboardingScheduler } from './first-boot-onboarding';
 import { createQolboxMenuController } from './qolbox-menu-controller';
 import { createQolboxMenuMarkup, type QolboxSettingsDraft } from './qolbox-menu-markup';
+import type { ThemeSettings } from '../settings/theme-settings';
 
 interface QolboxMenuFeatureBundleOptions {
   applyFeatureRootClasses(): void;
   applyPersistentFeatures(): void;
   ensureGlobalStyle(): void;
   getAdvancedSettings(): AdvancedSettings;
+  getThemeSettings(): ThemeSettings;
   isFeatureEnabled(featureKey: FeatureKey): boolean;
   scheduleUiWork(request: ScheduledUiWorkRequest): void;
+  soundBanks: {
+    getMarkup(): string;
+    handleAction(action: string, element: HTMLElement): Promise<boolean>;
+    handleInput(element: HTMLInputElement | HTMLSelectElement): Promise<boolean>;
+  };
   setAdvancedSettings(settings: AdvancedSettings): void;
   setAllFeatureSettings(settings: FeatureSettings): void;
+  setThemeSettings(settings: ThemeSettings): void;
   setFeatureEnabled(featureKey: string | undefined, enabled: boolean): void;
 }
 
@@ -51,9 +59,12 @@ export function createQolboxMenuFeatureBundle(options: QolboxMenuFeatureBundleOp
     ? createInitialReleaseHistoryState(pendingUpdateNotice.previousVersion, pendingUpdateNotice.currentVersion)
     : null;
   let updateReleaseHistoryRefreshStarted = false;
+  let patchNotesReleaseHistory = createInitialReleaseHistoryState(null);
+  let patchNotesReleaseHistoryRefreshStarted = false;
 
-  const { getOnboardingStepMarkup, getOnboardingSteps, getSettingsMenuMarkup, getUpdateNoticeMarkup } = createQolboxMenuMarkup({
+  const { getOnboardingStepMarkup, getOnboardingSteps, getReferenceMarkup, getSettingsMenuMarkup, getUpdateNoticeMarkup } = createQolboxMenuMarkup({
     featureDefinitions: FEATURE_DEFINITIONS,
+    getSoundBankMarkup: options.soundBanks.getMarkup,
     greaseForkUrl: QOLBOX_GREASYFORK_URL,
     githubUrl: QOLBOX_GITHUB_URL,
     isFeatureEnabled: options.isFeatureEnabled,
@@ -70,6 +81,7 @@ export function createQolboxMenuFeatureBundle(options: QolboxMenuFeatureBundleOp
     return {
       advanced: { ...options.getAdvancedSettings() },
       features,
+      theme: options.getThemeSettings(),
     };
   }
 
@@ -77,6 +89,9 @@ export function createQolboxMenuFeatureBundle(options: QolboxMenuFeatureBundleOp
     createSettingsDraft,
     getOnboardingStepMarkup,
     getOnboardingStepCount: () => getOnboardingSteps().length,
+    getPatchNotesMarkup: pageIndex => getUpdateNoticeMarkup(null, patchNotesReleaseHistory, pageIndex),
+    getPatchNotesPageCount: () => Math.max(1, patchNotesReleaseHistory.notes.length),
+    getReferenceMarkup,
     getSettingsMenuMarkup,
     getUpdateNoticeMarkup: pageIndex =>
       pendingUpdateNotice
@@ -106,20 +121,25 @@ export function createQolboxMenuFeatureBundle(options: QolboxMenuFeatureBundleOp
       saveOnboardingComplete();
       options.applyFeatureRootClasses();
       options.applyPersistentFeatures();
-      options.scheduleUiWork({ force: true, features: true, passes: FULLSCREEN_SETTLE_PASSES });
+      options.scheduleUiWork({ features: true, passes: FULLSCREEN_SETTLE_PASSES });
     },
-    onCommitSettingsDraft: (features, advanced) => {
+    onCommitSettingsDraft: (features, advanced, theme) => {
       options.setAllFeatureSettings(features);
       options.setAdvancedSettings(advanced);
+      options.setThemeSettings(theme);
     },
+    onCustomAction: options.soundBanks.handleAction,
+    onCustomInput: options.soundBanks.handleInput,
     onMenuModeChanged: options.applyFeatureRootClasses,
+    onOpenPatchNotes: refreshPatchNotesReleaseHistory,
     onSetFeatureEnabled: options.setFeatureEnabled,
   });
 
-  const { scheduleFirstBootOnboarding } = createFirstBootOnboardingScheduler({
-    isOnboardingComplete: menuController.isOnboardingComplete,
-    showFirstBootOnboarding: menuController.showFirstBootOnboarding,
-  });
+  function scheduleFirstBootOnboarding(): void {
+    if (!menuController.isOnboardingComplete()) {
+      window.setTimeout(menuController.showFirstBootOnboarding, 0);
+    }
+  }
 
   function scheduleStartupQolboxNotice(): void {
     if (!menuController.isOnboardingComplete()) {
@@ -133,15 +153,7 @@ export function createQolboxMenuFeatureBundle(options: QolboxMenuFeatureBundleOp
 
     refreshUpdateReleaseHistory();
 
-    const show = () => {
-      window.setTimeout(menuController.showUpdateNotice, 0);
-    };
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', show, { once: true });
-    } else {
-      show();
-    }
+    window.setTimeout(menuController.showUpdateNotice, 0);
   }
 
   function refreshUpdateReleaseHistory(): void {
@@ -150,12 +162,33 @@ export function createQolboxMenuFeatureBundle(options: QolboxMenuFeatureBundleOp
     }
 
     updateReleaseHistoryRefreshStarted = true;
-    loadReleaseHistoryState(pendingUpdateNotice.previousVersion, pendingUpdateNotice.currentVersion)
+    loadReleaseHistoryState(pendingUpdateNotice.previousVersion, pendingUpdateNotice.currentVersion, nextHistory => {
+      updateReleaseHistory = nextHistory;
+      if (menuController.getMode() === 'update') {
+        menuController.renderQolboxMenu();
+      }
+    })
       .then(nextHistory => {
         updateReleaseHistory = nextHistory;
         if (menuController.getMode() === 'update') {
           menuController.renderQolboxMenu();
         }
+      })
+      .catch(() => {
+        // loadReleaseHistoryState already converts failures into a fallback state.
+      });
+  }
+
+  function refreshPatchNotesReleaseHistory(): void {
+    if (patchNotesReleaseHistoryRefreshStarted) return;
+    patchNotesReleaseHistoryRefreshStarted = true;
+    loadReleaseHistoryState(null, QOLBOX_VERSION, nextHistory => {
+      patchNotesReleaseHistory = nextHistory;
+      if (menuController.getMode() === 'patch-notes') menuController.renderQolboxMenu();
+    })
+      .then(nextHistory => {
+        patchNotesReleaseHistory = nextHistory;
+        if (menuController.getMode() === 'patch-notes') menuController.renderQolboxMenu();
       })
       .catch(() => {
         // loadReleaseHistoryState already converts failures into a fallback state.

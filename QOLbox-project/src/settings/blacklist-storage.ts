@@ -34,7 +34,7 @@ export function sanitizeBlacklistNames(value: unknown): string[] {
 
 export function loadBlacklistNames(): string[] {
   try {
-    return sanitizeBlacklistNames(JSON.parse(localStorage.getItem(BLACKLIST_STORAGE_KEY) || '[]'));
+    return sanitizeBlacklistNames(JSON.parse(getLocalStorageItem(BLACKLIST_STORAGE_KEY) || '[]'));
   } catch {
     return [];
   }
@@ -42,10 +42,7 @@ export function loadBlacklistNames(): string[] {
 
 export function saveBlacklistNames(names: readonly string[]): string[] {
   const sanitizedNames = sanitizeBlacklistNames(names);
-  try {
-    localStorage.setItem(BLACKLIST_STORAGE_KEY, JSON.stringify(sanitizedNames));
-  } catch {
-    // Storage may be unavailable in privacy-restricted browser contexts.
-  }
+  setLocalStorageItem(BLACKLIST_STORAGE_KEY, JSON.stringify(sanitizedNames));
   return sanitizedNames;
 }
+import { getLocalStorageItem, setLocalStorageItem } from '../utils/local-storage';

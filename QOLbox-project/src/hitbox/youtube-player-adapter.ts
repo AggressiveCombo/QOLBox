@@ -16,7 +16,8 @@ interface YouTubeJukeboxAdapterOptions {
 }
 
 export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOptions) {
-  let trackedPlayers = new Set<unknown>();
+  const trackedPlayers = new Set<unknown>();
+  const originalPlayerStates = new Map<unknown, { muted: boolean | null; volume: number | null }>();
   let hookInstalled = false;
   let playerStateApplied = false;
   let retryTimer = 0;
@@ -76,6 +77,12 @@ export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOption
       const getMuted = readObjectProperty(player, 'isMuted');
       const currentVolume = isNativeCallable(getVolume) ? Reflect.apply(getVolume, player, []) : null;
       const currentlyMuted = isNativeCallable(getMuted) ? Reflect.apply(getMuted, player, []) : null;
+      if (!originalPlayerStates.has(player)) {
+        originalPlayerStates.set(player, {
+          muted: typeof currentlyMuted === 'boolean' ? currentlyMuted : null,
+          volume: typeof currentVolume === 'number' && Number.isFinite(currentVolume) ? currentVolume : null,
+        });
+      }
       if (options.isMuted()) {
         if (currentVolume !== 0) {
           Reflect.apply(setVolume, player, [0]);
@@ -97,6 +104,7 @@ export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOption
       playerStateApplied = true;
     } catch {
       trackedPlayers.delete(player);
+      originalPlayerStates.delete(player);
     }
   }
 
@@ -111,7 +119,7 @@ export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOption
     }
   }
 
-  function restoreTrackedPlayers(volume: number): void {
+  function restoreTrackedPlayers(): void {
     if (!playerStateApplied) {
       return;
     }
@@ -120,19 +128,25 @@ export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOption
       const setVolume = readObjectProperty(player, 'setVolume');
       if (!player || !isNativeCallable(setVolume)) {
         trackedPlayers.delete(player);
+        originalPlayerStates.delete(player);
         continue;
       }
 
       try {
-        Reflect.apply(setVolume, player, [volume]);
-        const unMute = readObjectProperty(player, 'unMute');
-        if (isNativeCallable(unMute)) {
-          Reflect.apply(unMute, player, []);
+        const originalState = originalPlayerStates.get(player);
+        if (typeof originalState?.volume === 'number') {
+          Reflect.apply(setVolume, player, [originalState.volume]);
+        }
+        const muteMethod = readObjectProperty(player, originalState?.muted ? 'mute' : 'unMute');
+        if (originalState?.muted !== null && originalState?.muted !== undefined && isNativeCallable(muteMethod)) {
+          Reflect.apply(muteMethod, player, []);
         }
       } catch {
         trackedPlayers.delete(player);
       }
     }
+    originalPlayerStates.clear();
+    trackedPlayers.clear();
     playerStateApplied = false;
   }
 
@@ -224,10 +238,9 @@ export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOption
       window.clearTimeout(retryTimer);
       retryTimer = 0;
     }
-    retryCount = 0;
-
     if (hookInstalled || readBooleanProperty(playerConstructor, '__qolboxWrapped')) {
       hookInstalled = true;
+      retryCount = 0;
       discoverPlayers();
       return true;
     }
@@ -248,8 +261,12 @@ export function createYouTubeJukeboxAdapter(options: YouTubeJukeboxAdapterOption
     Object.setPrototypeOf(WrappedPlayer, OriginalPlayer);
     setObjectProperty(WrappedPlayer, 'prototype', readObjectProperty(OriginalPlayer, 'prototype'));
     setObjectProperty(WrappedPlayer, '__qolboxWrapped', true);
-    setObjectProperty(yt, 'Player', WrappedPlayer);
+    if (!setObjectProperty(yt, 'Player', WrappedPlayer) || readObjectProperty(yt, 'Player') !== WrappedPlayer) {
+      scheduleRetry();
+      return false;
+    }
     hookInstalled = true;
+    retryCount = 0;
     discoverPlayers();
     return true;
   }

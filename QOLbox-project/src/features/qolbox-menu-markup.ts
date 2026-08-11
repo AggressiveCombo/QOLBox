@@ -4,6 +4,7 @@ import {
   ADVANCED_ALERT_FLASH_INTERVAL_MS,
   ADVANCED_BLACKLIST_ENFORCEMENT,
   ADVANCED_COMMAND_ALIASES,
+  ADVANCED_EDITOR_MAP_READABLE_FILES,
   ADVANCED_RESERVE_RETRY_INTERVAL_MS,
   ADVANCED_SETTING_DEFINITIONS,
   ADVANCED_TYPING_DURATION_MS,
@@ -13,6 +14,7 @@ import {
 import {
   FEATURE_AUDIO,
   FEATURE_CHAT,
+  FEATURE_EDITOR_FORCE_SAVE,
   FEATURE_EDITOR_MAP_TRANSFER,
   FEATURE_FULLSCREEN,
   FEATURE_GAME_START_ALERT,
@@ -25,18 +27,29 @@ import {
 } from '../settings/feature-settings';
 import type { PendingUpdateNotice } from '../settings/update-notice-storage';
 import type { QolboxReleaseHistoryState, QolboxReleaseNote } from '../config/qolbox-release-notes';
+import { getQolboxCommandReferenceLines } from './lobby-command-help';
+import { SOUND_EFFECTS } from './sound-bank';
+import {
+  THEME_GAME_ACCENT,
+  THEME_QOLBOX_ACCENT,
+  type ThemeColorKey,
+  type ThemeSettings,
+} from '../settings/theme-settings';
 
-export type QolboxSettingsPage = 'features' | 'commands' | 'audio' | 'advanced' | 'about';
+export type QolboxSettingsPage = 'features' | 'commands' | 'audio' | 'appearance' | 'advanced' | 'about';
+export type QolboxReferenceTopic = 'commands' | 'controls' | 'sound-banks';
 export type QolboxAdvancedDraft = Record<AdvancedSettingKey, unknown>;
-export type QolboxSettingsValidationErrors = Partial<Record<AdvancedSettingKey, string>>;
+export type QolboxSettingsValidationErrors = Partial<Record<AdvancedSettingKey | ThemeColorKey, string>>;
 
 export interface QolboxSettingsDraft {
   advanced: QolboxAdvancedDraft;
   features: FeatureSettings;
+  theme: ThemeSettings;
 }
 
 interface QolboxMenuMarkupOptions {
   featureDefinitions: readonly FeatureDefinition[];
+  getSoundBankMarkup(): string;
   greaseForkUrl: string;
   githubUrl: string;
   isFeatureEnabled(featureKey: FeatureKey): boolean;
@@ -48,24 +61,23 @@ export interface OnboardingStep {
   featureKey?: FeatureKey;
   text: string;
   title: string;
-  type: 'intro' | 'feature' | 'finish';
+  type: 'intro' | 'feature' | 'info' | 'finish';
 }
 
 const SETTINGS_PAGES: readonly { key: QolboxSettingsPage; title: string }[] = [
   { key: 'features', title: 'Features' },
   { key: 'commands', title: 'Commands' },
   { key: 'audio', title: 'Audio' },
+  { key: 'appearance', title: 'Appearance' },
   { key: 'advanced', title: 'Advanced' },
   { key: 'about', title: 'About' },
 ];
 
-const SETTINGS_PAGE_TITLES: Record<QolboxSettingsPage, string> = {
-  features: 'Feature Settings',
-  commands: 'Command Settings',
-  audio: 'Audio Settings',
-  advanced: 'Advanced Settings',
-  about: 'About QOLBox',
-};
+const REFERENCE_TOPICS: readonly { icon: string; key: QolboxReferenceTopic; title: string }[] = [
+  { icon: 'terminal', key: 'commands', title: 'Commands' },
+  { icon: 'keyboard', key: 'controls', title: 'Controls' },
+  { icon: 'music', key: 'sound-banks', title: 'Sound Banks' },
+];
 
 const FEATURE_PAGE_KEYS: readonly FeatureKey[] = [
   FEATURE_FULLSCREEN,
@@ -73,6 +85,7 @@ const FEATURE_PAGE_KEYS: readonly FeatureKey[] = [
   FEATURE_CHAT,
   FEATURE_GAME_START_ALERT,
   FEATURE_EDITOR_MAP_TRANSFER,
+  FEATURE_EDITOR_FORCE_SAVE,
   FEATURE_MOBILE_GRAB,
 ];
 
@@ -82,6 +95,32 @@ const ADVANCED_TIMING_KEYS: readonly AdvancedSettingKey[] = [
   ADVANCED_ALERT_FLASH_INTERVAL_MS,
   ADVANCED_TYPING_DURATION_MS,
 ];
+
+const ADVANCED_EDITOR_KEYS: readonly AdvancedSettingKey[] = [
+  ADVANCED_EDITOR_MAP_READABLE_FILES,
+];
+
+const FEATURE_ICONS: Record<FeatureKey, string> = {
+  [FEATURE_AUDIO]: 'volume-2',
+  [FEATURE_CHAT]: 'message-circle',
+  [FEATURE_EDITOR_FORCE_SAVE]: 'save',
+  [FEATURE_EDITOR_MAP_TRANSFER]: 'folder-open',
+  [FEATURE_FULLSCREEN]: 'maximize',
+  [FEATURE_GAME_START_ALERT]: 'bell-ring',
+  [FEATURE_LOBBY_COMMANDS]: 'terminal',
+  [FEATURE_MOBILE_GRAB]: 'mouse-pointer',
+  [FEATURE_RESERVE]: 'log-in',
+};
+
+const ADVANCED_ICONS: Record<AdvancedSettingKey, string> = {
+  [ADVANCED_ALERT_DELAY_MS]: 'bell-ring',
+  [ADVANCED_ALERT_FLASH_INTERVAL_MS]: 'zap',
+  [ADVANCED_BLACKLIST_ENFORCEMENT]: 'shield',
+  [ADVANCED_COMMAND_ALIASES]: 'terminal',
+  [ADVANCED_EDITOR_MAP_READABLE_FILES]: 'download',
+  [ADVANCED_RESERVE_RETRY_INTERVAL_MS]: 'refresh-cw',
+  [ADVANCED_TYPING_DURATION_MS]: 'message-circle',
+};
 
 const GREASYFORK_ICON_DATA_URI =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH3ggEBCQHM3fXsAAAAVdJREFUOMudkz2qwkAUhc/goBaGJBgUtBCZyj0ILkpwAW7Bws4yO3AHLiCtEFD8KVREkoiFxZzX5A2KGfN4F04zMN+ce+5c4LMUgDmANYBnrnV+plBSi+FwyHq9TgA2LQpvCiEiABwMBtzv95RSfoNEHy8DYBzHrNVqVEr9BWKcqNFoxF6vx3a7zc1mYyC73a4MogBg7vs+z+czO50OW60Wt9stK5UKp9Mpj8cjq9WqDTBHnjAdxzGQZrPJw+HA31oulzbAWgLoA0CWZVBKIY5jzGYzdLtdE9DlcrFNrY98zobqOA6TJKHW2jg4nU5sNBpFDp6mhVe5rsvVasUwDHm9Xqm15u12o+/7Hy0gD8KatOd5vN/v1FozTVN6nkchxFuI6hsAAIMg4OPxMJCXdtTbR7JJCMEgCJhlGUlyPB4XfumozInrupxMJpRSRtZlKoNYl+m/6/wDuWAjtPfsQuwAAAAASUVORK5CYII=';
@@ -111,7 +150,19 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
         type: 'intro',
         title: 'Welcome to QOLBox',
         text:
-          'QOLBox is a hitbox.io userscript with fullscreen layout, reserve spots in full lobbies, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, and map import/export.',
+          'QOLBox is a hitbox.io userscript with fullscreen layout, reserve spots in full lobbies, audio controls and sound banks, away-tab alerts, mobile Grab, readable chat, lobby commands, and an improved editor with multi-selection and map import/export.',
+      },
+      {
+        type: 'info',
+        title: 'Interface and appearance',
+        text:
+          'Use Tab and arrow keys to move through menus, Esc to close them, and Tab or Right Arrow to complete slash commands. Room List stays available from lobby and game menus; click a lobby player for level progress and account details. Long map descriptions scroll, published-map votes are clickable, and Appearance can follow your system theme or customize and link the QOLBox and game accent colors.',
+      },
+      {
+        type: 'info',
+        title: 'Editor workflow',
+        text:
+          'The editor adds Shift/Ctrl multi-selection, drag-area selection, group copy/paste/delete, mixed-value editing, exact colors, an eyedropper, mirroring, reliable outlines, and undo/redo shortcuts. Open the editor Help tab for the complete reference.',
       },
       ...featureSteps,
       {
@@ -181,6 +232,9 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
   function getOnboardingStepMarkup(onboardingStepIndex: number): string {
     const steps = getOnboardingSteps();
     const step = steps[Math.max(0, Math.min(onboardingStepIndex, steps.length - 1))];
+    if (!step) {
+      return '';
+    }
     const isFeatureStep = step.type === 'feature';
     const isFirstStep = onboardingStepIndex === 0;
     const isFinalStep = onboardingStepIndex === steps.length - 1;
@@ -191,9 +245,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     if (isFirstStep) {
       return `
         <div class="qolboxMenuBody">
-          <div class="qolboxMenuHeaderLine">
-            <h1 class="qolboxMenuTitle">${escapeMenuText(step.title)}</h1>
-          </div>
+          <div class="qolboxMenuSectionTitle">${escapeMenuText(step.title)}</div>
           <p class="qolboxMenuText">${escapeMenuText(step.text)}</p>
           <div class="qolboxMenuChoiceGrid">
             <button class="qolboxMenuChoice primary" data-qolbox-action="choose-express">
@@ -214,11 +266,11 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
 
     return `
       <div class="qolboxMenuBody">
-        <div class="qolboxMenuHeaderLine">
-          <h1 class="qolboxMenuTitle">${escapeMenuText(step.title)}</h1>
-        </div>
+        <div class="qolboxMenuSectionTitle">${escapeMenuText(step.title)}</div>
         <p class="qolboxMenuText">${escapeMenuText(step.text)}</p>
-        ${isFeatureStep && step.featureKey ? getOnboardingToggleMarkup(step.featureKey) : getOnboardingSummaryMarkup()}
+        ${isFeatureStep && step.featureKey
+          ? getOnboardingToggleMarkup(step.featureKey)
+          : isFinalStep ? getOnboardingSummaryMarkup() : ''}
         <div class="qolboxMenuProgress" aria-hidden="true">${progress}</div>
         <div class="qolboxMenuActions">
           <button class="qolboxMenuButton" data-qolbox-action="back">Back</button>
@@ -232,7 +284,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     return `
       <div class="qolboxMenuTabs" role="tablist" aria-label="QOLBox settings sections">
         ${SETTINGS_PAGES.map(page => `
-          <button class="qolboxMenuTab${page.key === activePage ? ' active' : ''}" role="tab" aria-selected="${page.key === activePage ? 'true' : 'false'}" data-qolbox-action="settings-page" data-page="${page.key}">${escapeMenuText(page.title)}</button>
+          <button class="qolboxMenuTab${page.key === activePage ? ' active' : ''}" role="tab" aria-controls="qolboxMenuPage" aria-selected="${page.key === activePage ? 'true' : 'false'}" tabindex="${page.key === activePage ? '0' : '-1'}" data-qolbox-action="settings-page" data-page="${page.key}">${escapeMenuText(page.title)}</button>
         `).join('')}
       </div>
     `;
@@ -243,7 +295,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     return `
       <div class="qolboxMenuFeatureRow">
         <div>
-          <div class="qolboxMenuFeatureName">${escapeMenuText(feature.title)}</div>
+          <div class="qolboxMenuFeatureName" data-qolbox-icon="${FEATURE_ICONS[feature.key]}">${escapeMenuText(feature.title)}</div>
           <div class="qolboxMenuFeatureSummary">${escapeMenuText(feature.summary)}</div>
         </div>
         ${getDraftFeatureToggleMarkup(feature.key, draft)}
@@ -287,7 +339,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     return `
       <div class="qolboxMenuFeatureRow compact${rowKindClass}">
         <div>
-          <div class="qolboxMenuFeatureName">${escapeMenuText(definition.title)}</div>
+          <div class="qolboxMenuFeatureName" data-qolbox-icon="${ADVANCED_ICONS[key]}">${escapeMenuText(definition.title)}</div>
           <div class="qolboxMenuFeatureSummary">${escapeMenuText(definition.description)}</div>
         </div>
         <div class="qolboxMenuFieldControl">
@@ -301,9 +353,6 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     return `
       <div class="qolboxMenuSettingsList">
         ${FEATURE_PAGE_KEYS.map(featureKey => getFeatureRowMarkup(featureKey, draft)).join('')}
-      </div>
-      <div class="qolboxMenuActions slim">
-        <button class="qolboxMenuButton" data-qolbox-action="reset-page">Reset Features</button>
       </div>
     `;
   }
@@ -319,9 +368,6 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
         ${getAdvancedRowMarkup(ADVANCED_BLACKLIST_ENFORCEMENT, draft, errors)}
       </div>
       <div class="qolboxMenuInfoBox">Special targets: /spec all|playing, /join all|spectators, and /red or /blue all|playing|spectators. Quote those words to use them as player names. Named targets for /spec, /join, /red, /blue, /host, /kick, and /ban accept exact or unique partial names. /blacklist stores exact names for host bans.</div>
-      <div class="qolboxMenuActions slim">
-        <button class="qolboxMenuButton" data-qolbox-action="reset-page">Reset Commands</button>
-      </div>
     `;
   }
 
@@ -330,9 +376,71 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
       <div class="qolboxMenuSettingsList">
         ${getFeatureRowMarkup(FEATURE_AUDIO, draft)}
       </div>
-      <div class="qolboxMenuInfoBox">Adjust game and jukebox volume from Hitbox's hamburger menu.</div>
-      <div class="qolboxMenuActions slim">
-        <button class="qolboxMenuButton" data-qolbox-action="reset-page">Reset Audio</button>
+      ${options.getSoundBankMarkup()}
+    `;
+  }
+
+  function getThemeColorMarkup(
+    key: ThemeColorKey,
+    title: string,
+    summary: string,
+    value: string,
+    error: string | undefined
+  ): string {
+    return `
+      <label class="qolboxThemeColorControl">
+        <span class="qolboxMenuFeatureName">${escapeMenuText(title)}</span>
+        <span class="qolboxMenuFeatureSummary">${escapeMenuText(summary)}</span>
+        <span class="qolboxThemeColorInputs">
+          <input class="qolboxThemeColorPicker" type="color" value="${escapeMenuText(value)}" data-qolbox-theme-picker="${escapeMenuText(key)}" aria-label="Choose ${escapeMenuText(title.toLowerCase())}">
+          <input class="qolboxMenuInput qolboxThemeHexInput${error ? ' invalid' : ''}" type="text" value="${escapeMenuText(value)}" maxlength="7" spellcheck="false" autocomplete="off" data-qolbox-theme-input="${escapeMenuText(key)}" aria-label="${escapeMenuText(title)} hex color">
+        </span>
+        ${error ? `<span class="qolboxMenuFieldError">${escapeMenuText(error)}</span>` : ''}
+      </label>
+    `;
+  }
+
+  function getAppearancePageMarkup(
+    draft: QolboxSettingsDraft,
+    errors: QolboxSettingsValidationErrors
+  ): string {
+    return `
+      <div class="qolboxMenuFeatureRow compact qolboxThemeModeRow">
+        <div>
+          <div class="qolboxMenuFeatureName" data-qolbox-icon="palette">Color mode</div>
+          <div class="qolboxMenuFeatureSummary">Follow your device or force dark or light.</div>
+        </div>
+        <div class="qolboxMenuToggleGroup qolboxThemeMode" role="group" aria-label="Color mode">
+          ${(['system', 'dark', 'light'] as const).map(mode => `
+            <button class="qolboxMenuToggle${draft.theme.mode === mode ? ' active' : ''}" type="button"
+              data-qolbox-action="draft-theme-mode" data-mode="${mode}" data-qolbox-icon="${mode === 'system' ? 'monitor' : mode === 'dark' ? 'moon' : 'sun'}">
+              ${mode[0]?.toUpperCase()}${mode.slice(1)}
+            </button>`).join('')}
+        </div>
+      </div>
+      <div class="qolboxThemeControls${draft.theme.linked ? ' linked' : ''}">
+        ${getThemeColorMarkup(
+          THEME_QOLBOX_ACCENT,
+          'QOLBox accent',
+          'QOLBox controls and highlights.',
+          draft.theme.qolboxAccent,
+          errors[THEME_QOLBOX_ACCENT]
+        )}
+        <div class="qolboxThemeLinkControls">
+          ${draft.theme.linked
+            ? '<button class="qolboxThemeLinkButton" type="button" data-qolbox-action="unlink-theme" data-qolbox-icon="unlink">Unlink</button>'
+            : `
+              <button class="qolboxThemeLinkButton" type="button" data-qolbox-action="link-theme-from-qolbox" data-qolbox-icon="arrow-right">Use QOLBox</button>
+              <button class="qolboxThemeLinkButton" type="button" data-qolbox-action="link-theme-from-game" data-qolbox-icon="arrow-left">Use Game</button>
+            `}
+        </div>
+        ${getThemeColorMarkup(
+          THEME_GAME_ACCENT,
+          'Game accent',
+          'Hitbox buttons and blue interface chrome.',
+          draft.theme.gameAccent,
+          errors[THEME_GAME_ACCENT]
+        )}
       </div>
     `;
   }
@@ -343,10 +451,8 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
   ): string {
     return `
       <div class="qolboxMenuSettingsList">
+        ${ADVANCED_EDITOR_KEYS.map(key => getAdvancedRowMarkup(key, draft, errors)).join('')}
         ${ADVANCED_TIMING_KEYS.map(key => getAdvancedRowMarkup(key, draft, errors)).join('')}
-      </div>
-      <div class="qolboxMenuActions slim">
-        <button class="qolboxMenuButton" data-qolbox-action="reset-page">Reset Advanced</button>
       </div>
     `;
   }
@@ -370,10 +476,57 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     return `
       <div class="qolboxMenuInfoBox">
         <div class="qolboxMenuFeatureName">QOLBox ${escapeMenuText(options.versionLabel)}</div>
-        <div class="qolboxMenuFeatureSummary">Fullscreen layout, reserve spots, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, and map import/export for hitbox.io.</div>
+        <div class="qolboxMenuFeatureSummary">Fullscreen layout, reserve spots, audio controls, away-tab alerts, mobile Grab, readable chat, lobby commands, and an improved editor with multi-selection, grouped editing, exact colors, reliable outlines, and map import/export.</div>
       </div>
       ${getCreditsMarkup()}
+      <div class="qolboxMenuActions slim">
+        <button class="qolboxMenuButton" data-qolbox-action="redo-onboarding">Redo Setup</button>
+        <button class="qolboxMenuButton" data-qolbox-action="view-reference">Reference</button>
+        <button class="qolboxMenuButton" data-qolbox-action="view-patch-notes">View Patch Notes</button>
+      </div>
     `;
+  }
+
+  function getReferenceEntriesMarkup(topic: QolboxReferenceTopic): string {
+    if (topic === 'commands') {
+      return getQolboxCommandReferenceLines().slice(1).map(line => {
+        const [syntax, description] = line.split(' -- ', 2);
+        return description
+          ? `<section class="qolboxReferenceEntry command"><code>${escapeMenuText(syntax || '')}</code><p>${escapeMenuText(description)}</p></section>`
+          : `<section class="qolboxReferenceEntry wide"><p>${escapeMenuText(line)}</p></section>`;
+      }).join('');
+    }
+    if (topic === 'controls') {
+      return [
+        ['Open QOLBox', `${options.menuKeyLabel} opens or closes this menu.`],
+        ['Menus', 'Tab and Shift+Tab move between controls. Arrow keys move through tabs and lists. Enter or Space activates the focused control. Esc closes the current menu, popup, or dropdown.'],
+        ['Room List', 'Arrow keys change the selected room, Enter joins it, and Esc closes the browser or password prompt.'],
+        ['Command completion', 'In chat, Tab or Right Arrow accepts the visible completion. Up and Down cycle matching commands.'],
+        ['Volume', 'Drag vertically on Volume in Hitbox\'s hamburger menu for one-percent adjustments. Click it to cycle the normal preset levels.'],
+      ].map(([title, description]) => `<section class="qolboxReferenceEntry"><h2>${escapeMenuText(title || '')}</h2><p>${escapeMenuText(description || '')}</p></section>`).join('');
+    }
+    const effects = SOUND_EFFECTS.map(effect => `<code>${escapeMenuText(effect.source)}</code>`).join('');
+    const jsonManifest = escapeMenuText(JSON.stringify({
+      name: 'My Bank',
+      sounds: { 'bathit1.wav': 'https://example.com/custom-hit.opus' },
+    }, null, 2));
+    return `
+      <section class="qolboxReferenceEntry wide"><h2>JSON manifest</h2><pre>${jsonManifest}</pre></section>
+      <section class="qolboxReferenceEntry wide"><h2>Plain-text manifest</h2><pre>bathit1.wav=https://example.com/custom-hit.opus</pre><p>One direct HTTPS audio URL per line also works when the URL filename is a recognized effect filename.</p></section>
+      <section class="qolboxReferenceEntry wide"><h2>Effect filenames</h2><div class="qolboxReferenceCodes">${effects}</div></section>`;
+  }
+
+  function getReferenceMarkup(topic: QolboxReferenceTopic): string {
+    return `
+      <div class="qolboxMenuBody qolboxReferenceBody">
+        <div class="qolboxReferenceLayout">
+          <nav class="qolboxReferenceTopics" aria-label="Reference topics" role="tablist" aria-orientation="vertical">
+            ${REFERENCE_TOPICS.map(candidate => `<button class="qolboxReferenceTopic${candidate.key === topic ? ' active' : ''}" type="button" role="tab" data-qolbox-action="reference-topic" data-qolbox-icon="${candidate.icon}" data-topic="${candidate.key}" aria-selected="${candidate.key === topic}" tabindex="${candidate.key === topic ? '0' : '-1'}">${candidate.title}</button>`).join('')}
+          </nav>
+          <div class="qolboxReferenceDetail" role="tabpanel" tabindex="0">${getReferenceEntriesMarkup(topic)}</div>
+        </div>
+        <div class="qolboxMenuActions"><button class="qolboxMenuButton primary" data-qolbox-action="back-to-settings">Back</button></div>
+      </div>`;
   }
 
   function getSettingsPageMarkup(
@@ -388,6 +541,8 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
         return getAudioPageMarkup(draft);
       case 'advanced':
         return getAdvancedPageMarkup(draft, errors);
+      case 'appearance':
+        return getAppearancePageMarkup(draft, errors);
       case 'about':
         return getAboutPageMarkup();
       case 'features':
@@ -402,19 +557,15 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     errors: QolboxSettingsValidationErrors
   ): string {
     const pageTitle = SETTINGS_PAGES.find(candidate => candidate.key === page)?.title || 'Features';
-    const settingsTitle = SETTINGS_PAGE_TITLES[page];
 
     return `
-      <div class="qolboxMenuBody">
-        <div class="qolboxMenuHeaderLine">
-          <h1 class="qolboxMenuTitle">${escapeMenuText(settingsTitle)}</h1>
-        </div>
+      <div class="qolboxMenuBody settings">
         ${getSettingsTabsMarkup(page)}
-        <div class="qolboxMenuPage" aria-label="${escapeMenuText(pageTitle)} settings">
+        <div id="qolboxMenuPage" class="qolboxMenuPage" role="tabpanel" aria-label="${escapeMenuText(pageTitle)} settings">
           ${getSettingsPageMarkup(draft, page, errors)}
         </div>
         <div class="qolboxMenuActions">
-          <button class="qolboxMenuButton" data-qolbox-action="redo-onboarding">Redo Setup</button>
+          <button class="qolboxMenuButton" data-qolbox-action="restore-qolbox-defaults">QOLBox Defaults</button>
           <button class="qolboxMenuButton" data-qolbox-action="cancel-settings">Cancel</button>
           <button class="qolboxMenuButton primary" data-qolbox-action="save-settings">OK</button>
         </div>
@@ -455,23 +606,24 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
   }
 
   function getUpdateNoticeMarkup(
-    notice: PendingUpdateNotice,
+    notice: PendingUpdateNotice | null,
     releaseHistory: QolboxReleaseHistoryState,
     pageIndex: number
   ): string {
+    const title = notice ? 'QOLBox Updated' : 'Patch Notes';
+    const closeAction = notice ? 'acknowledge-update' : 'back-to-settings';
+    const closeLabel = notice ? 'OK' : 'Back';
     if (releaseHistory.status === 'loading') {
       return `
         <div class="qolboxMenuBody">
-          <div class="qolboxMenuHeaderLine">
-            <h1 class="qolboxMenuTitle">QOLBox Updated</h1>
-          </div>
-          ${getUpdateRangeMarkup(notice)}
+          <div class="qolboxMenuSectionTitle">${title}</div>
+          ${notice ? getUpdateRangeMarkup(notice) : ''}
           <div class="qolboxMenuLoading" role="status" aria-live="polite">
             <span class="qolboxMenuSpinner" aria-hidden="true"></span>
             <span>Loading update notes from GitHub and GreasyFork...</span>
           </div>
           <div class="qolboxMenuActions">
-            <button class="qolboxMenuButton primary" data-qolbox-action="acknowledge-update">Skip</button>
+            <button class="qolboxMenuButton primary" data-qolbox-action="${closeAction}">${notice ? 'Skip' : closeLabel}</button>
           </div>
         </div>
       `;
@@ -498,11 +650,9 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
     const chronologicalPageNumber = releaseNotes.length ? pageCount - safePageIndex : 0;
 
     return `
-      <div class="qolboxMenuBody">
-        <div class="qolboxMenuHeaderLine">
-          <h1 class="qolboxMenuTitle">QOLBox Updated</h1>
-        </div>
-        ${getUpdateRangeMarkup(notice)}
+        <div class="qolboxMenuBody">
+        <div class="qolboxMenuSectionTitle">${title}</div>
+        ${notice ? getUpdateRangeMarkup(notice) : ''}
         ${notes}
         <div class="qolboxMenuHeaderLine">
           <button class="qolboxMenuButton" data-qolbox-action="update-older" ${safePageIndex >= releaseNotes.length - 1 ? 'disabled' : ''}>Older</button>
@@ -510,7 +660,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
           <button class="qolboxMenuButton" data-qolbox-action="update-newer" ${safePageIndex <= 0 ? 'disabled' : ''}>Newer</button>
         </div>
         <div class="qolboxMenuActions">
-          <button class="qolboxMenuButton primary" data-qolbox-action="acknowledge-update">OK</button>
+          <button class="qolboxMenuButton primary" data-qolbox-action="${closeAction}">${closeLabel}</button>
         </div>
       </div>
     `;
@@ -519,6 +669,7 @@ export function createQolboxMenuMarkup(options: QolboxMenuMarkupOptions) {
   return {
     getOnboardingStepMarkup,
     getOnboardingSteps,
+    getReferenceMarkup,
     getSettingsMenuMarkup,
     getUpdateNoticeMarkup,
   };

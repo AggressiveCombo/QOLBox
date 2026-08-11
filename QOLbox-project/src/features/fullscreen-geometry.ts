@@ -1,6 +1,4 @@
 import {
-  buildFullscreenProbeSignature,
-  isFullscreenNativeProbeAligned,
   isFullscreenRenderProbeAligned,
 } from './fullscreen-probe-alignment';
 import type {
@@ -11,34 +9,19 @@ import type {
   FullscreenViewportSize,
 } from './fullscreen-types';
 
-const MENU_FRAME_PADDING_PX = 0;
-const GAMEPLAY_SAFE_TOP_PX = 0;
-const GAMEPLAY_SAFE_BOTTOM_PX = 0;
-const GAMEPLAY_SAFE_SIDE_PX = 0;
-
 interface FullscreenGeometryOptions {
   getActiveRenderMode(): string;
   getBaseGameSize(): FullscreenBaseSize;
   getViewportSize(): FullscreenViewportSize;
-  hasNativeGame(): boolean;
 }
 
 export function createFullscreenGeometry(options: FullscreenGeometryOptions) {
-  function getModeInsets(mode: string): FullscreenInsets {
-    if (mode === 'gameplay' || mode === 'editor') {
-      return {
-        left: GAMEPLAY_SAFE_SIDE_PX,
-        right: GAMEPLAY_SAFE_SIDE_PX,
-        top: GAMEPLAY_SAFE_TOP_PX,
-        bottom: GAMEPLAY_SAFE_BOTTOM_PX,
-      };
-    }
-
+  function getModeInsets(_mode: string): FullscreenInsets {
     return {
-      left: MENU_FRAME_PADDING_PX,
-      right: MENU_FRAME_PADDING_PX,
-      top: MENU_FRAME_PADDING_PX,
-      bottom: MENU_FRAME_PADDING_PX,
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
     };
   }
 
@@ -66,17 +49,9 @@ export function createFullscreenGeometry(options: FullscreenGeometryOptions) {
       scale,
       left,
       top,
-      shellLeft: 0,
-      shellTop: 0,
-      shellWidth: viewport.width,
-      shellHeight: viewport.height,
       insets,
       mode,
     };
-  }
-
-  function getNativeUiZoom(dimensions: FullscreenDimensions = getFullscreenDimensions()): number {
-    return Math.min(1, dimensions.width / 1400);
   }
 
   function getRelativeContainerBounds(dimensions: FullscreenDimensions = getFullscreenDimensions()) {
@@ -92,21 +67,10 @@ export function createFullscreenGeometry(options: FullscreenGeometryOptions) {
     return isFullscreenRenderProbeAligned(probe, dimensions);
   }
 
-  function isNativeProbeAligned(probe: FullscreenLayoutProbe, dimensions: FullscreenDimensions): boolean {
-    return isFullscreenNativeProbeAligned(probe, dimensions);
-  }
-
-  function buildFullscreenSignature(dimensions: FullscreenDimensions, probe: FullscreenLayoutProbe): string {
-    return buildFullscreenProbeSignature(dimensions, probe, options.hasNativeGame());
-  }
-
   return {
-    buildFullscreenSignature,
     getFullscreenDimensions,
     getModeInsets,
-    getNativeUiZoom,
     getRelativeContainerBounds,
-    isNativeProbeAligned,
     isRenderProbeAligned,
   };
 }

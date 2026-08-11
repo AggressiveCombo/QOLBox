@@ -2,7 +2,7 @@ import {
   getFullscreenInlineStyleProperty,
   removeFullscreenInlineProperties,
 } from './fullscreen-inline-style';
-import { readObjectProperty } from '../utils/object-properties';
+import { isCallable, readObjectProperty } from '../utils/object-properties';
 
 interface FullscreenSpectateControlsLayoutOptions {
   isElementVisible(element: Element | null): boolean;
@@ -13,11 +13,13 @@ interface FullscreenSpectateControlsLayoutOptions {
 }
 
 const CLOSED_CONTROLS_BOTTOM_OFFSET_PX = 12;
+const OPEN_CONTROLS_FALLBACK_BOTTOM_OFFSET_PX = 62;
+const PHYSICS_COUNT_FALLBACK_BOTTOM_OFFSET_PX = 17;
+const PHYSICS_COUNT_RADIO_MARGIN_PX = 10;
+const SPECTATE_CONTROLS_RADIO_MARGIN_PX = 5;
 const HELD_OPEN_CONTROLS_MARGIN_PX = 3;
 const RADIO_NEAR_OPEN_BOTTOM_PX = -2;
 const RADIO_CLOSING_REENTER_DELTA_PX = 0.5;
-
-type NativeCallable = (...args: unknown[]) => unknown;
 
 let isPointerTrackingInstalled = false;
 let lastPointerPosition: { x: number; y: number } | null = null;
@@ -126,13 +128,9 @@ function isSpectateControlsAlreadyExpanded(controls: Element, openOffset: number
   return bottom !== null && bottom >= openOffset - HELD_OPEN_CONTROLS_MARGIN_PX;
 }
 
-function isNativeCallable(value: unknown): value is NativeCallable {
-  return typeof value === 'function';
-}
-
 function callNativeJukeboxHandler(jukebox: Element, handlerName: 'onmouseenter' | 'onmouseleave', fallbackBottom: string): void {
   const handler = readObjectProperty(jukebox, handlerName);
-  if (isNativeCallable(handler)) {
+  if (isCallable(handler)) {
     Reflect.apply(handler, jukebox, []);
     return;
   }
@@ -141,6 +139,18 @@ function callNativeJukeboxHandler(jukebox: Element, handlerName: 'onmouseenter' 
   if (style instanceof CSSStyleDeclaration) {
     style.bottom = fallbackBottom;
   }
+}
+
+function getRadioBottomOffset(jukebox: Element, margin: number, fallback: number): number {
+  const circleRect = jukebox.querySelector('.circle')?.getBoundingClientRect();
+  const jukeboxRect = jukebox.getBoundingClientRect();
+  const jukeboxHeight = Number.parseFloat(window.getComputedStyle(jukebox).height);
+  const layoutScale = jukeboxRect.height > 0 && jukeboxHeight > 0
+    ? jukeboxRect.height / jukeboxHeight
+    : 1;
+  return circleRect && circleRect.height > 0
+    ? (window.innerHeight - circleRect.top) / layoutScale + margin
+    : fallback;
 }
 
 interface SpectatorRadioLayoutState {
@@ -173,9 +183,14 @@ function getSpectatorRadioLayoutState(
   const style = window.getComputedStyle(jukebox);
   const inlineBottom = getFullscreenInlineStyleProperty(jukebox, 'bottom');
   const bottom = Number.parseFloat(typeof inlineBottom === 'string' ? inlineBottom : style.bottom);
-  const rect = jukebox.getBoundingClientRect();
-  const height = rect.height || Number.parseFloat(style.height) || 35;
-  const openOffset = Math.ceil(height + 36);
+  const liveOffset = getRadioBottomOffset(
+    jukebox,
+    SPECTATE_CONTROLS_RADIO_MARGIN_PX,
+    CLOSED_CONTROLS_BOTTOM_OFFSET_PX
+  );
+  const openOffset = Number.isFinite(bottom)
+    ? liveOffset - bottom
+    : OPEN_CONTROLS_FALLBACK_BOTTOM_OFFSET_PX;
   const openProgress = Number.isFinite(bottom) ? Math.max(0, Math.min(1, (bottom + 50) / 50)) : 0;
   const jukeboxDirectlyActive = jukebox.matches(':hover') || hasFocusedDescendant(jukebox);
   const jukeboxIsActive = jukeboxDirectlyActive || openProgress > 0.05 || spectatorRadioHoldActive;
@@ -205,8 +220,6 @@ function getSpectatorRadioLayoutState(
     };
   }
 
-  // Native jukebox closing waits before animating; following its live bottom keeps both controls together.
-  const liveOffset = Math.round(baseOffset + (openOffset - baseOffset) * openProgress);
   return {
     controlsBottomOffset: holdControlsOpen || holdReleasedNearOpen ? openOffset : liveOffset,
     jukebox,
@@ -223,6 +236,7 @@ export function createFullscreenSpectateControlsLayout(options: FullscreenSpecta
   let keepControlsOpenUntilRadioCloses = false;
   let lastHeldJukeboxBottom: number | null = null;
   let spectatorRadioHoldActive = false;
+  let useGameplayHudLayout = false;
 
   function schedulePointerSync(): void {
     if (pointerSyncFrame) {
@@ -238,13 +252,28 @@ export function createFullscreenSpectateControlsLayout(options: FullscreenSpecta
   window.addEventListener('pointermove', schedulePointerSync, true);
   window.addEventListener('pointerdown', schedulePointerSync, true);
 
-  function setSpectateControlsBottom(spectateControls: Element, bottom: string): boolean {
-    if (getFullscreenInlineStyleProperty(spectateControls, 'bottom') === bottom) {
+  function setBottom(element: Element, bottom: string): boolean {
+    if (getFullscreenInlineStyleProperty(element, 'bottom') === bottom) {
       return false;
     }
 
-    options.setImportantStyle(spectateControls, 'bottom', bottom);
+    options.setImportantStyle(element, 'bottom', bottom);
     return true;
+  }
+
+  function setPhysicsCountBottom(state: SpectatorRadioLayoutState): boolean {
+    const offset = state.jukebox
+      ? getRadioBottomOffset(
+        state.jukebox,
+        PHYSICS_COUNT_RADIO_MARGIN_PX,
+        PHYSICS_COUNT_FALLBACK_BOTTOM_OFFSET_PX
+      )
+      : PHYSICS_COUNT_FALLBACK_BOTTOM_OFFSET_PX;
+    let changed = false;
+    for (const count of document.querySelectorAll('.physicsCountWindow')) {
+      changed = setBottom(count, `${offset}px`) || changed;
+    }
+    return changed;
   }
 
   function releaseSpectatorRadioHold(): void {
@@ -327,45 +356,59 @@ export function createFullscreenSpectateControlsLayout(options: FullscreenSpecta
   }
 
   function syncSpectateControlsBottomWithJukebox(): boolean {
-    if (!options.isFullscreenEnabled() || !options.isSessionMatchActive()) {
+    if (!options.isFullscreenEnabled()) {
       releaseSpectatorRadioHold();
       return false;
     }
 
+    const useSpectateControls = useGameplayHudLayout && options.isSessionMatchActive();
+    if (!useSpectateControls) {
+      releaseSpectatorRadioHold();
+    }
     const state = getSpectatorRadioLayoutState(
       options,
       spectatorRadioHoldActive,
       keepControlsOpenUntilRadioCloses
     );
-    const forceOpenControls = syncJukeboxSpectatorHold(state);
+    const forceOpenControls = useSpectateControls && syncJukeboxSpectatorHold(state);
 
     const bottom = `${forceOpenControls ? state.openOffset : state.controlsBottomOffset}px`;
-    let changed = false;
+    let changed = setPhysicsCountBottom(state);
+    if (!useSpectateControls) {
+      for (const controls of document.querySelectorAll(options.spectateControlsSelector)) {
+        resetSpectateControlsLayout(controls);
+      }
+      return changed;
+    }
     for (const controls of document.querySelectorAll(options.spectateControlsSelector)) {
-      changed = setSpectateControlsBottom(controls, bottom) || changed;
+      changed = setBottom(controls, bottom) || changed;
     }
 
     return changed;
   }
 
-  function layoutSpectateControls(useGameplayHudLayout: boolean): void {
-    if (!useGameplayHudLayout) {
+  function layoutSpectateControls(gameplayHudLayout: boolean): void {
+    useGameplayHudLayout = gameplayHudLayout;
+    const useSpectateControls = gameplayHudLayout && options.isSessionMatchActive();
+    if (!useSpectateControls) {
       releaseSpectatorRadioHold();
-    } else {
-      const state = getSpectatorRadioLayoutState(
-        options,
-        spectatorRadioHoldActive,
-        keepControlsOpenUntilRadioCloses
-      );
-      const forceOpenControls = syncJukeboxSpectatorHold(state);
-      const controlsBottomOffset = forceOpenControls ? state.openOffset : state.controlsBottomOffset;
+    }
+    const state = getSpectatorRadioLayoutState(
+      options,
+      spectatorRadioHoldActive,
+      keepControlsOpenUntilRadioCloses
+    );
+    const forceOpenControls = useSpectateControls && syncJukeboxSpectatorHold(state);
+    const controlsBottomOffset = forceOpenControls ? state.openOffset : state.controlsBottomOffset;
+    setPhysicsCountBottom(state);
 
+    if (useSpectateControls) {
       for (const spectateControls of document.querySelectorAll(options.spectateControlsSelector)) {
         options.setImportantStyle(spectateControls, 'position', 'absolute');
         options.setImportantStyle(spectateControls, 'left', '50%');
         options.setImportantStyle(spectateControls, 'right', 'auto');
         options.setImportantStyle(spectateControls, 'top', 'auto');
-        setSpectateControlsBottom(spectateControls, `${controlsBottomOffset}px`);
+        setBottom(spectateControls, `${controlsBottomOffset}px`);
         options.setImportantStyle(spectateControls, 'transform', 'translateX(-50%)');
         options.setImportantStyle(spectateControls, 'margin', '0');
         options.setImportantStyle(spectateControls, 'z-index', '2147483002');

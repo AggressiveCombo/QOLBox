@@ -1,4 +1,4 @@
-import { keepOutOfBrowserTabOrder } from '../dom/dom-helpers';
+import { keepInBrowserTabOrder } from '../dom/dom-helpers';
 import { hasDataset, isStyledElement } from '../dom/element-guards';
 
 export type GameVolumeMenuItemElement = Element & {
@@ -31,11 +31,12 @@ export function findGameVolumeItem(): GameVolumeMenuItemElement | null {
 }
 
 export function updateGameVolumeItemView(item: GameVolumeMenuItemElement, gamePercent: number): void {
-  item.textContent = `Volume: ${gamePercent}%`;
-  item.setAttribute('title', 'Scroll or use arrow keys to adjust by 5%, left-click up, right-click down');
+  const label = `Volume: ${gamePercent}%`;
+  if (item.textContent?.trim() !== label) item.textContent = label;
+  item.setAttribute('title', 'Drag vertically to adjust by 1%, scroll or use arrow keys by 5%, left-click up, right-click down');
   item.style.cursor = 'ns-resize';
   item.style.userSelect = 'none';
-  keepOutOfBrowserTabOrder(item);
+  keepInBrowserTabOrder(item);
   item.setAttribute('role', 'slider');
   item.setAttribute('aria-label', 'Game volume');
   item.setAttribute('aria-valuemin', '0');

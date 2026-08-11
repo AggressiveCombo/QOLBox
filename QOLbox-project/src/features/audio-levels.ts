@@ -27,7 +27,7 @@ function readStringProperty(source: unknown, property: PropertyKey): string {
 }
 
 export function percentToGameScalar(percent: number): number {
-  return Math.pow(clampPercent(percent, DEFAULT_GAME_PERCENT) / 100, GAME_CURVE_EXPONENT);
+  return (clampPercent(percent, DEFAULT_GAME_PERCENT) / 100) ** GAME_CURVE_EXPONENT;
 }
 
 export function percentToJukeboxVolume(percent: number): number {
@@ -36,7 +36,7 @@ export function percentToJukeboxVolume(percent: number): number {
     return 0;
   }
 
-  return Math.max(1, Math.round(Math.pow(clampedPercent / 100, JUKEBOX_CURVE_EXPONENT) * 100));
+  return Math.max(1, Math.round((clampedPercent / 100) ** JUKEBOX_CURVE_EXPONENT * 100));
 }
 
 export function percentToJukeboxAngle(percent: number): number {
@@ -119,19 +119,19 @@ export function parseJukeboxAngleFromTransform(transform: string): number | null
     return normalizeJukeboxAngle(Number(rotateMatch[1]));
   }
 
-  const matrixMatch = transform.match(/^matrix\(([^)]+)\)$/i);
-  if (matrixMatch) {
-    const values = matrixMatch[1].split(',').map(value => Number(value.trim()));
+  const matrixValues = transform.match(/^matrix\(([^)]+)\)$/i)?.[1];
+  if (matrixValues) {
+    const values = matrixValues.split(',').map(value => Number(value.trim()));
     if (values.length >= 4 && values.every(Number.isFinite)) {
-      return normalizeJukeboxAngle((Math.atan2(values[1], values[0]) * 180) / Math.PI);
+      return normalizeJukeboxAngle((Math.atan2(values[1] ?? 0, values[0] ?? 0) * 180) / Math.PI);
     }
   }
 
-  const matrix3dMatch = transform.match(/^matrix3d\(([^)]+)\)$/i);
-  if (matrix3dMatch) {
-    const values = matrix3dMatch[1].split(',').map(value => Number(value.trim()));
+  const matrix3dValues = transform.match(/^matrix3d\(([^)]+)\)$/i)?.[1];
+  if (matrix3dValues) {
+    const values = matrix3dValues.split(',').map(value => Number(value.trim()));
     if (values.length >= 16 && values.every(Number.isFinite)) {
-      return normalizeJukeboxAngle((Math.atan2(values[1], values[0]) * 180) / Math.PI);
+      return normalizeJukeboxAngle((Math.atan2(values[1] ?? 0, values[0] ?? 0) * 180) / Math.PI);
     }
   }
 

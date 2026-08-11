@@ -3,7 +3,7 @@ import { getPlayerDisplayName } from '../hitbox/player-appearance-adapter';
 import { formatCommandPlayerName } from './lobby-command-player-targets';
 import { createLobbyCommandActions } from './lobby-command-actions';
 import { createLobbyCommandDispatcher } from './lobby-command-dispatcher';
-import { createQolboxChatStatusWriter } from './qolbox-chat-status';
+import { writeChatLine } from '../hitbox/chat-adapter';
 import { createLobbyBlacklistController } from './lobby-blacklist';
 import { installSlashCommandInterceptor } from './slash-command-interceptor';
 import { installPlayerPopupDismissal } from './player-popup-dismissal';
@@ -21,9 +21,9 @@ interface LobbyCommandsFeatureBundleOptions {
 }
 
 export function createLobbyCommandsFeatureBundle(options: LobbyCommandsFeatureBundleOptions) {
-  const { showQolboxChatStatus } = createQolboxChatStatusWriter({
-    getSession: getMultiplayerSession,
-  });
+  function showQolboxChatStatus(message: string, session: unknown = getMultiplayerSession()): void {
+    writeChatLine(session, `* ${message}`);
+  }
 
   const lobbyCommandActions = createLobbyCommandActions({
     getPlayerDisplayName,
@@ -66,9 +66,12 @@ export function createLobbyCommandsFeatureBundle(options: LobbyCommandsFeatureBu
       return message;
     }
 
-    const [, leadingSpace, commandName, rawTarget] = match;
+    const [, leadingSpace = '', commandName, rawTarget] = match;
+    if (!commandName || !rawTarget) {
+      return message;
+    }
     const quotedTarget = rawTarget.match(/^(["'])(.*)\1$/);
-    const targetName = quotedTarget ? quotedTarget[2] : rawTarget;
+    const targetName = quotedTarget?.[2] ?? rawTarget;
     const result = lobbyCommandActions.findPlayerByName(targetName);
     if (result.status === 'found') {
       return `${leadingSpace}/${commandName.toLowerCase()} ${formatCommandPlayerName(result.match.player)}`;

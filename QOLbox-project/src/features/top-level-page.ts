@@ -10,6 +10,25 @@ interface SavedRelayFavicon {
   type: string | null;
 }
 
+function isExpectedGameFrameMessage(event: MessageEvent): boolean {
+  if (!HITBOX_ORIGIN_PATTERN.test(event.origin)) {
+    return false;
+  }
+
+  return Array.from(document.querySelectorAll('iframe')).some(frame => {
+    if (frame.contentWindow !== event.source) {
+      return false;
+    }
+
+    try {
+      const frameUrl = new URL(frame.src || frame.getAttribute('src') || '', document.baseURI);
+      return frameUrl.origin === event.origin && /\/game2\.html$/i.test(frameUrl.pathname);
+    } catch {
+      return false;
+    }
+  });
+}
+
 declare global {
   interface Window {
     __qolboxGameStartRelayInstalled?: boolean;
@@ -132,7 +151,7 @@ export function installTopLevelGameStartRelay(): void {
   window.addEventListener(
     'message',
     event => {
-      if (!HITBOX_ORIGIN_PATTERN.test(event.origin)) {
+      if (!isExpectedGameFrameMessage(event)) {
         return;
       }
 

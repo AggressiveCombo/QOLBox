@@ -13,6 +13,7 @@ interface ReserveInteractionState {
 
 interface StopReserveOptions {
   clearSelection?: boolean;
+  hideNative?: boolean;
 }
 
 interface ReserveInteractionHandlersOptions {
@@ -59,7 +60,7 @@ export function createReserveInteractionHandlers(options: ReserveInteractionHand
 
   function cancelReserveSpot(): void {
     if (options.getState()?.unavailable) {
-      options.stopReserveSpot({ clearSelection: true });
+      options.stopReserveSpot({ clearSelection: true, hideNative: true });
       return;
     }
 
@@ -72,7 +73,7 @@ export function createReserveInteractionHandlers(options: ReserveInteractionHand
       clickReserveElement(cancelButton);
     }
 
-    options.stopReserveSpot();
+    options.stopReserveSpot({ hideNative: true });
   }
 
   function handleReserveRoomListClick(event: Event): void {

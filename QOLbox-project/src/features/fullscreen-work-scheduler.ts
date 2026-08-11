@@ -3,21 +3,20 @@ import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
 interface FullscreenWorkSchedulerOptions {
   applyFeatureRootClasses(): void;
   applyPersistentFeatures(): void;
+  discardObservedMutations(): void;
   ensureGlobalStyle(): void;
   installFullscreenHooks(): void;
-  refreshFullscreen(force: boolean): unknown;
+  refreshFullscreen(): unknown;
   refreshObservedResizeTargets(): void;
 }
 
 export function createFullscreenWorkScheduler(options: FullscreenWorkSchedulerOptions) {
   let scheduledWorkRaf = 0;
-  let scheduledWorkForce = false;
   let scheduledWorkFeatures = false;
   let scheduledWorkPasses = 0;
 
   // Coalesce DOM churn; hidden tabs use a timeout because requestAnimationFrame can pause.
-  function scheduleUiWork({ force = false, features = false, passes = 1 }: ScheduledUiWorkRequest = {}): void {
-    scheduledWorkForce = scheduledWorkForce || force;
+  function scheduleUiWork({ features = false, passes = 1 }: ScheduledUiWorkRequest = {}): void {
     scheduledWorkFeatures = scheduledWorkFeatures || features;
     scheduledWorkPasses = Math.max(scheduledWorkPasses, Math.max(1, passes));
 
@@ -28,11 +27,9 @@ export function createFullscreenWorkScheduler(options: FullscreenWorkSchedulerOp
     const runScheduledWork = () => {
       scheduledWorkRaf = 0;
 
-      const shouldForce = scheduledWorkForce;
       const shouldPatchFeatures = scheduledWorkFeatures;
       const remainingPasses = scheduledWorkPasses;
 
-      scheduledWorkForce = false;
       scheduledWorkFeatures = false;
       scheduledWorkPasses = 0;
 
@@ -44,11 +41,14 @@ export function createFullscreenWorkScheduler(options: FullscreenWorkSchedulerOp
         options.applyPersistentFeatures();
       }
 
-      options.refreshFullscreen(shouldForce);
+      options.refreshFullscreen();
       options.refreshObservedResizeTargets();
+      // Everything above is a complete, idempotent pass. Drop its synchronous
+      // mutation records so QOLBox does not schedule itself forever.
+      options.discardObservedMutations();
 
       if (remainingPasses > 1) {
-        scheduleUiWork({ force: true, passes: remainingPasses - 1 });
+        scheduleUiWork({ passes: remainingPasses - 1 });
       }
     };
 

@@ -1,4 +1,6 @@
 import { QOLBOX_VERSION } from './qolbox-version';
+import { getLocalStorageItem, setLocalStorageItem } from '../utils/local-storage';
+import { isRecord } from '../utils/object-properties';
 
 export type QolboxReleaseNoteSource = 'github' | 'greasyfork' | 'local-fallback';
 
@@ -46,6 +48,9 @@ interface ReleaseHistoryBridgeResponse {
   type?: unknown;
 }
 
+type ReleaseHistoryUpdateCallback = (state: QolboxReleaseHistoryState) => void;
+type ReleaseHistoryEndpoint = 'github' | 'greasyfork';
+
 declare global {
   interface Window {
     __qolboxReleaseHistoryBridgeReady?: boolean;
@@ -61,9 +66,44 @@ const RELEASE_HISTORY_BRIDGE_REQUEST_SOURCE = 'qolbox-release-history';
 const RELEASE_HISTORY_BRIDGE_RESPONSE_SOURCE = 'qolbox-release-history-bridge';
 const RELEASE_HISTORY_BRIDGE_REQUEST_TYPE = 'fetch';
 const RELEASE_HISTORY_BRIDGE_RESPONSE_TYPE = 'fetch-result';
-const LOCAL_CURRENT_RELEASE_FALLBACK_NOTES: readonly string[] = [
-  'No public update notes were found for this version.',
-];
+const LOCAL_CURRENT_RELEASE_FALLBACK_NOTES: readonly string[] = QOLBOX_VERSION.replace(/-dev$/i, '') === '3.0.0'
+  ? [
+      'Added editor multi-selection with Shift/Ctrl clicking and drag-box area selection; selected objects can be moved, copied, pasted, deleted, undone, redone, and edited together.',
+      'Added shared editor property editing: different values show Mixed, fill and stroke swatches show every distinct selected color, unsupported objects stay unchanged, and selected object IDs remain visible.',
+      'Added merged-body workflows, including group movement, rotation, mirroring and clipboard operations, direct Ctrl-click subbody editing, and Ungroup in Subbody Properties.',
+      'Added horizontal and vertical Mirror actions plus relative value commands such as =+3 and =-3.',
+      'Added an editor color picker with the I shortcut, fill/outline sampling, and exact #RGB or #RRGGBB fields for fill, stroke, and map background colors.',
+      'Added exact #RGB or #RRGGBB entry for the native player appearance color.',
+      'Added references for QOLBox controls, compact command syntax, sound-bank manifests, and effect filenames, plus a one-time step-by-step improved-editor introduction and a permanent Editor Help menu.',
+      'Added an Editor Save option that keeps Hitbox\'s native Save action available after loading a map.',
+      'Added View Patch Notes to the QOLBox About page.',
+      'Added Room List to the in-room hamburger so the native browser opens over the current lobby or match and disconnects the current session before joining another room, plus Player Info for the registered-player level and exact XP progress Hitbox exposes.',
+      'Added customizable QOLBox and Hitbox interface accent colors, with exact hex entry, contrast-aware text and icons, a themed native player emblem, and an option to keep both accents linked or separate.',
+      'Added system-aware light mode for Hitbox and QOLBox, with readable themed surfaces and System, Dark, and Light choices in Appearance.',
+      'Added inline slash-command completion with Tab or Right Arrow to accept and Up or Down Arrow to cycle matching commands.',
+      'Added saved custom sound banks that replace individual game effects with uploaded audio or direct-URL manifests, include volume-matched previews, and keep the complete Vanilla bank available.',
+      'Improved fullscreen rendering so the game stays sharp at the monitor\'s displayed resolution while preserving Hitbox\'s native camera, UI scale, and browser-zoom behavior, with proportionally cropped backgrounds instead of stretching or tiling at unusual aspect ratios.',
+      'Improved editor outlines and hit testing so rotated polygons, circles, rectangles, and joints remain aligned through zoom and selection changes, and polygon selection follows the actual shape.',
+      'Improved editor camera and map lifecycle behavior so the first view and new maps are centered, fullscreen changes preserve the same position and relative zoom, and stale selections or IDs do not survive map replacement.',
+      'Improved editor zoom safety and WebGL recovery by respecting the active device\'s rendering limits and rebuilding the current game or editor scene after a restored context.',
+      'Improved editor map import/export with descriptive filenames, optional readable JSON exports, strict validation, an 8 MiB input limit, backup-and-rollback imports, and support for compact .hitboxmap, readable JSON, and compatible text files.',
+      'Improved keyboard navigation across the main menu, server browser, Quick Play, hamburger menus, lobby and map controls, native dialogs, and editor menus, including contained tab order and focus restoration.',
+      'Improved the map browser so long descriptions can be scrolled and published-map like/dislike icons work with mouse or keyboard input.',
+      'Improved Load Map responsiveness by pausing automatic previews during scrolling, rendering ordinary previews progressively, and skipping oversized automatic previews without blocking the selected map.',
+      'Improved action clarity with icons across main, hamburger, Room List, QOLBox, popup, and editor controls, and consolidated Volume, Music, and Jukebox under one expandable Audio command with persistent mute controls and fine volume dragging.',
+      'Improved in-game chat formatting so command results and jukebox suggestions retain the same semantic colors and action emphasis as the lobby.',
+      'Improved the QOLBox menu with a larger responsive panel that can be resized and remembers its size, one global QOLBox Defaults action, cleaner footer placement, and reliable short-window scrolling.',
+      'Improved fullscreen HUD spacing so spectator controls, the jukebox, editor object counter, and player action menus keep stable positions and margins as controls open or close.',
+      'Fixed lobby music playing in-game; it now stops in lobbies and games and resumes after leaving.',
+      'Fixed cancelling Reserve Spots leaving stale room selection or button state behind.',
+      'Fixed update history showing releases outside the installed-to-current version range.',
+      'Fixed editor color wheels staying open after clicking the black void outside the map, and made open File, Tools, and Settings dropdowns close when the pointer leaves them.',
+      'Fixed editor map actions leaving the File dropdown open or disappearing after native menu refreshes.',
+      'Fixed the editor export fallback being able to trigger a real Play transition.',
+      'Fixed editor object dragging and camera panning competing for the same pointer input.',
+      'Fixed native connecting and loading controls so Cancel closes every popup without stale room selection, long errors wrap inside dialogs, and Room List refresh cannot leave a duplicate or permanently stuck spinner.',
+    ]
+  : ['No public update notes were found for this version.'];
 const GREASYFORK_EMPTY_HISTORY_NOTES: readonly string[] = [
   'No public update notes were posted for this version.',
 ];
@@ -80,10 +120,6 @@ const LOCAL_CURRENT_RELEASE_FALLBACK: readonly QolboxReleaseNote[] = [
   },
 ];
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 function normalizeVersionKey(version: unknown): string {
   return String(version || '').trim().replace(/^v/i, '').toLowerCase();
 }
@@ -94,8 +130,11 @@ function parseVersionPoint(version: unknown): VersionPoint | null {
     return null;
   }
 
-  const [main, prerelease = ''] = normalized.split('-', 2);
+  const [main = '', prerelease = ''] = normalized.split('-', 2);
   const rawParts = main.split('.');
+  if (!main || rawParts.length > 3) {
+    return null;
+  }
   const parts: number[] = [];
   let wildcardIndex: number | null = null;
 
@@ -125,7 +164,7 @@ function parseVersionPoint(version: unknown): VersionPoint | null {
 
 function compareVersionPoints(left: VersionPoint, right: VersionPoint): number {
   for (let index = 0; index < 3; index += 1) {
-    const delta = left.parts[index] - right.parts[index];
+    const delta = (left.parts[index] ?? 0) - (right.parts[index] ?? 0);
     if (delta) {
       return delta;
     }
@@ -248,12 +287,16 @@ function dedupeLatestReleaseEntries(entries: readonly QolboxReleaseNote[]): Qolb
 function cleanReleaseText(text: string): string {
   return text
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/[`*_>#]+/g, '')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/(^|[\s(])([*_])([^*_\n]+)\2(?=$|[\s).,;:!?])/g, '$1$3')
+    .replace(/^>\s*/, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function extractMarkdownNotes(markdown: unknown): string[] {
+export function extractMarkdownNotes(markdown: unknown): string[] {
   if (typeof markdown !== 'string') {
     return [];
   }
@@ -267,7 +310,7 @@ function extractMarkdownNotes(markdown: unknown): string[] {
 
     const bulletMatch = line.match(/^[-*+]\s+(.+)$/) || line.match(/^\d+[.)]\s+(.+)$/);
     if (bulletMatch) {
-      const note = cleanReleaseText(bulletMatch[1]);
+      const note = cleanReleaseText(bulletMatch[1] ?? '');
       if (note) {
         notes.push(note);
       }
@@ -292,7 +335,7 @@ function parseGitHubReleaseEntries(rawValue: unknown): QolboxReleaseNote[] {
 
   return rawValue
     .filter((record): record is GitHubReleaseRecord => isRecord(record))
-    .filter(record => record.draft !== true)
+    .filter(record => record.draft !== true && record.prerelease !== true)
     .map(record => {
       const version = normalizeVersionKey(record.tag_name);
       const notes = extractMarkdownNotes(record.body);
@@ -301,7 +344,9 @@ function parseGitHubReleaseEntries(rawValue: unknown): QolboxReleaseNote[] {
         source: 'github' as const,
         publishedAt: typeof record.published_at === 'string' ? record.published_at : undefined,
         url: typeof record.html_url === 'string' ? record.html_url : undefined,
-        notes: notes.length ? notes : [cleanReleaseText(String(record.name || `QOLBox ${version}`))],
+        notes: notes.length
+          ? notes
+          : [cleanReleaseText(typeof record.name === 'string' ? record.name : `QOLBox ${version}`)],
       };
     })
     .filter(entry => entry.version && entry.notes.length);
@@ -340,7 +385,7 @@ function makeBridgeRequestId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function fetchTextWithUserscriptBridge(url: string, headers: Record<string, string>): Promise<string> {
+function fetchTextWithUserscriptBridge(endpoint: ReleaseHistoryEndpoint): Promise<string> {
   if (!window.__qolboxReleaseHistoryBridgeReady) {
     return Promise.reject(new Error('Release-history bridge is unavailable.'));
   }
@@ -377,33 +422,58 @@ function fetchTextWithUserscriptBridge(url: string, headers: Record<string, stri
         source: RELEASE_HISTORY_BRIDGE_REQUEST_SOURCE,
         type: RELEASE_HISTORY_BRIDGE_REQUEST_TYPE,
         id,
-        url,
-        headers,
+        endpoint,
       },
       window.location.origin
     );
   });
 }
 
+function getReleaseHistoryEndpoint(url: string): ReleaseHistoryEndpoint | null {
+  if (url === GITHUB_RELEASES_URL) {
+    return 'github';
+  }
+
+  return url === GREASYFORK_HISTORY_URL ? 'greasyfork' : null;
+}
+
+function firstFulfilled<T>(promises: readonly Promise<T>[]): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let rejectionCount = 0;
+    let lastError: unknown = null;
+
+    for (const promise of promises) {
+      promise.then(resolve, error => {
+        rejectionCount += 1;
+        lastError = error;
+        if (rejectionCount >= promises.length) {
+          reject(lastError);
+        }
+      });
+    }
+  });
+}
+
 async function fetchText(url: string, headers: Record<string, string> = {}): Promise<string> {
+  const endpoint = getReleaseHistoryEndpoint(url);
+  if (!endpoint) {
+    throw new Error('Unknown release-history endpoint.');
+  }
+
   const requestHeaders = {
     Accept: 'text/html',
     ...headers,
   };
 
-  if (window.__qolboxReleaseHistoryBridgeReady) {
+  if (endpoint === 'github') {
     try {
-      return await fetchTextWithUserscriptBridge(url, requestHeaders);
+      return await fetchTextWithPageFetch(url, requestHeaders);
     } catch {
-      return fetchTextWithPageFetch(url, requestHeaders);
+      return fetchTextWithUserscriptBridge(endpoint);
     }
   }
 
-  try {
-    return await fetchTextWithPageFetch(url, requestHeaders);
-  } catch {
-    return fetchTextWithUserscriptBridge(url, requestHeaders);
-  }
+  return fetchTextWithUserscriptBridge(endpoint);
 }
 
 async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
@@ -455,20 +525,46 @@ async function fetchGreasyForkReleaseEntries(): Promise<QolboxReleaseNote[]> {
   return parseGreasyForkHistoryEntries(await fetchText(GREASYFORK_HISTORY_URL));
 }
 
-function safeGetLocalStorage(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
+function getReleaseHistoryStateFromEntries(
+  previousVersion: string | null,
+  currentVersion: string,
+  entries: readonly QolboxReleaseNote[],
+  status: QolboxReleaseHistoryState['status'] = 'ready'
+): QolboxReleaseHistoryState {
+  return {
+    status,
+    notes: getReleaseNotesBetween(previousVersion, currentVersion, entries),
+  };
 }
 
-function safeSetLocalStorage(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // Storage may be unavailable in privacy-restricted browser contexts.
-  }
+function mergeReleaseHistoryEntries(
+  externalEntries: readonly QolboxReleaseNote[],
+  cachedEntries: readonly QolboxReleaseNote[] = []
+): QolboxReleaseNote[] {
+  return dedupeLatestReleaseEntries([
+    ...LOCAL_CURRENT_RELEASE_FALLBACK,
+    ...cachedEntries,
+    ...externalEntries,
+  ]);
+}
+
+function handleReleaseHistoryCompletion(
+  previousVersion: string | null,
+  currentVersion: string,
+  externalPromises: readonly Promise<QolboxReleaseNote[]>[],
+  cachedEntries: readonly QolboxReleaseNote[],
+  onUpdate?: ReleaseHistoryUpdateCallback
+): void {
+  void Promise.allSettled(externalPromises).then(results => {
+    const externalEntries = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+    if (!externalEntries.length) {
+      return;
+    }
+
+    const entries = mergeReleaseHistoryEntries(externalEntries, cachedEntries);
+    saveReleaseHistoryCache(entries);
+    onUpdate?.(getReleaseHistoryStateFromEntries(previousVersion, currentVersion, entries));
+  });
 }
 
 function parseCachedReleaseHistory(rawValue: string | null): ReleaseHistoryCacheRecord | null {
@@ -478,14 +574,16 @@ function parseCachedReleaseHistory(rawValue: string | null): ReleaseHistoryCache
 
   try {
     const parsed: unknown = JSON.parse(rawValue);
-    if (!isRecord(parsed) || typeof parsed.fetchedAt !== 'number' || !Array.isArray(parsed.entries)) {
+    if (!isRecord(parsed) || !Number.isFinite(parsed.fetchedAt) || !Array.isArray(parsed.entries)) {
       return null;
     }
 
     const entries = parsed.entries
-      .filter((entry): entry is QolboxReleaseNote => isRecord(entry) && typeof entry.version === 'string' && Array.isArray(entry.notes))
-      .map(entry => ({
-        version: entry.version,
+      .filter((entry): entry is Record<string, unknown> =>
+        isRecord(entry) && typeof entry.version === 'string' && Array.isArray(entry.notes)
+      )
+      .map((entry): QolboxReleaseNote => ({
+        version: entry.version as string,
         source:
           entry.source === 'github'
             || entry.source === 'greasyfork'
@@ -494,17 +592,21 @@ function parseCachedReleaseHistory(rawValue: string | null): ReleaseHistoryCache
             : 'local-fallback',
         publishedAt: typeof entry.publishedAt === 'string' ? entry.publishedAt : undefined,
         url: typeof entry.url === 'string' ? entry.url : undefined,
-        notes: entry.notes.map(note => String(note)).filter(Boolean),
-      }));
+        notes: (entry.notes as unknown[])
+          .filter((note): note is string => typeof note === 'string')
+          .map(note => note.trim())
+          .filter(Boolean),
+      }))
+      .filter(entry => entry.notes.length > 0);
 
-    return { fetchedAt: parsed.fetchedAt, entries };
+    return { fetchedAt: parsed.fetchedAt as number, entries };
   } catch {
     return null;
   }
 }
 
 function getCachedReleaseHistoryEntries(allowStale = false): QolboxReleaseNote[] | null {
-  const cached = parseCachedReleaseHistory(safeGetLocalStorage(RELEASE_HISTORY_CACHE_KEY));
+  const cached = parseCachedReleaseHistory(getLocalStorageItem(RELEASE_HISTORY_CACHE_KEY));
   if (!cached) {
     return null;
   }
@@ -517,29 +619,10 @@ function getCachedReleaseHistoryEntries(allowStale = false): QolboxReleaseNote[]
 }
 
 function saveReleaseHistoryCache(entries: readonly QolboxReleaseNote[]): void {
-  safeSetLocalStorage(RELEASE_HISTORY_CACHE_KEY, JSON.stringify({
+  setLocalStorageItem(RELEASE_HISTORY_CACHE_KEY, JSON.stringify({
     fetchedAt: Date.now(),
     entries,
   }));
-}
-
-async function fetchExternalReleaseHistoryEntries(): Promise<QolboxReleaseNote[]> {
-  const [githubResult, greasyForkResult] = await Promise.allSettled([
-    fetchGitHubReleaseEntries(),
-    fetchGreasyForkReleaseEntries(),
-  ]);
-  const externalEntries = [
-    ...(githubResult.status === 'fulfilled' ? githubResult.value : []),
-    ...(greasyForkResult.status === 'fulfilled' ? greasyForkResult.value : []),
-  ];
-
-  if (!externalEntries.length) {
-    throw new Error('No public release history entries loaded.');
-  }
-
-  const entries = dedupeLatestReleaseEntries([...LOCAL_CURRENT_RELEASE_FALLBACK, ...externalEntries]);
-  saveReleaseHistoryCache(entries);
-  return entries;
 }
 
 export function getReleaseNotesBetween(
@@ -548,48 +631,47 @@ export function getReleaseNotesBetween(
   releaseHistory: readonly QolboxReleaseNote[] = LOCAL_CURRENT_RELEASE_FALLBACK
 ): QolboxReleaseNote[] {
   const entries = dedupeLatestReleaseEntries([...LOCAL_CURRENT_RELEASE_FALLBACK, ...releaseHistory]);
-  return entries.filter(entry => isVersionInUpgradeRange(entry.version, null, currentVersion));
+  return entries.filter(entry => isVersionInUpgradeRange(entry.version, previousVersion, currentVersion));
 }
 
-export function createInitialReleaseHistoryState(previousVersion: string, currentVersion = QOLBOX_VERSION): QolboxReleaseHistoryState {
+export function createInitialReleaseHistoryState(previousVersion: string | null, currentVersion = QOLBOX_VERSION): QolboxReleaseHistoryState {
   const cachedEntries = getCachedReleaseHistoryEntries();
   if (cachedEntries) {
-    const notes = getReleaseNotesBetween(previousVersion, currentVersion, cachedEntries);
-    return {
-      status: 'ready',
-      notes,
-    };
+    return getReleaseHistoryStateFromEntries(previousVersion, currentVersion, cachedEntries);
   }
 
-  const notes = getReleaseNotesBetween(previousVersion, currentVersion);
   return {
     status: 'loading',
-    notes,
+    notes: getReleaseNotesBetween(previousVersion, currentVersion),
   };
 }
 
-export async function loadReleaseHistoryState(previousVersion: string, currentVersion = QOLBOX_VERSION): Promise<QolboxReleaseHistoryState> {
+export async function loadReleaseHistoryState(
+  previousVersion: string | null,
+  currentVersion = QOLBOX_VERSION,
+  onUpdate?: ReleaseHistoryUpdateCallback
+): Promise<QolboxReleaseHistoryState> {
+  const cachedEntries = getCachedReleaseHistoryEntries(true) || [];
+  const githubPromise = fetchGitHubReleaseEntries();
+  const greasyForkPromise = fetchGreasyForkReleaseEntries();
+  const externalPromises = [githubPromise, greasyForkPromise];
+
   try {
-    const entries = await fetchExternalReleaseHistoryEntries();
-    const notes = getReleaseNotesBetween(previousVersion, currentVersion, entries);
-    return {
-      status: 'ready',
-      notes,
-    };
+    const firstEntries = await firstFulfilled(externalPromises);
+    handleReleaseHistoryCompletion(previousVersion, currentVersion, externalPromises, cachedEntries, onUpdate);
+    return getReleaseHistoryStateFromEntries(
+      previousVersion,
+      currentVersion,
+      mergeReleaseHistoryEntries(firstEntries, cachedEntries)
+    );
   } catch {
-    const cachedEntries = getCachedReleaseHistoryEntries(true);
-    if (cachedEntries) {
-      const notes = getReleaseNotesBetween(previousVersion, currentVersion, cachedEntries);
-      return {
-        status: 'fallback',
-        notes,
-      };
+    if (cachedEntries.length) {
+      return getReleaseHistoryStateFromEntries(previousVersion, currentVersion, cachedEntries, 'fallback');
     }
 
-    const notes = getReleaseNotesBetween(previousVersion, currentVersion);
     return {
       status: 'fallback',
-      notes,
+      notes: getReleaseNotesBetween(previousVersion, currentVersion),
     };
   }
 }

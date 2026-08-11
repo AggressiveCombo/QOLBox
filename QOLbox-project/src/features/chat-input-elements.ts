@@ -18,10 +18,6 @@ export function isChatInputElement(element: unknown, selector: string): element 
   return element instanceof Element && element.matches(selector);
 }
 
-export function isLobbyChatInputElement(element: unknown, selector: string): element is Element {
-  return element instanceof Element && element.matches(selector);
-}
-
 export function getActiveChatInputElement(target: unknown, selector: string): Element | null {
   if (isChatInputElement(target, selector)) {
     return target;

@@ -51,7 +51,6 @@ export function createFullscreenMutationObserver(options: FullscreenMutationObse
     if (needsLayout || needsFeatures) {
       options.updateGameStartIndicator();
       options.scheduleUiWork({
-        force: needsLayout,
         features: needsFeatures,
         passes: needsLayout ? options.settlePasses : 1,
       });
@@ -67,7 +66,12 @@ export function createFullscreenMutationObserver(options: FullscreenMutationObse
     fullscreenMutationObserver.observe(target, FULLSCREEN_OBSERVER_OPTIONS);
   }
 
+  function discardFullscreenMutationRecords(): void {
+    fullscreenMutationObserver?.takeRecords();
+  }
+
   return {
+    discardFullscreenMutationRecords,
     installFullscreenMutationObserver,
   };
 }

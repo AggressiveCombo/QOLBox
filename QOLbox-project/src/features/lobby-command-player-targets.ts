@@ -67,8 +67,9 @@ export function findPlayerByName(name: unknown, session: unknown = getMultiplaye
       }
     }
 
-    if (uniqueMatches.length === 1) {
-      return { status: 'found', match: uniqueMatches[0], matches: uniqueMatches };
+    const uniqueMatch = uniqueMatches[0];
+    if (uniqueMatches.length === 1 && uniqueMatch) {
+      return { status: 'found', match: uniqueMatch, matches: uniqueMatches };
     }
 
     if (uniqueMatches.length > 1) {
@@ -87,5 +88,5 @@ export function parseCommandTarget(argument: string): CommandTarget {
     return { group: normalizedValue as CommandTargetGroup, type: 'group', value };
   }
 
-  return { type: 'player', value: quotedMatch ? quotedMatch[2] : value };
+  return { type: 'player', value: quotedMatch?.[2] ?? value };
 }

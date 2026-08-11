@@ -4,8 +4,13 @@ import type {
   FullscreenViewportSize,
 } from './fullscreen-types';
 import { getCanvasBackingSize } from '../dom/element-guards';
-import { getNativeBaseGameSize, getNativeFullscreenLayoutSize } from '../hitbox/native-game-adapter';
-import { getKnownFullscreenRenderers } from '../hitbox/renderer-adapter';
+import { readNativeProperty } from '../hitbox/native-access';
+import { getKnownFullscreenRenderers, getRendererView } from '../hitbox/renderer-adapter';
+
+const HITBOX_REFERENCE_VIEWPORT_WIDTH = 1366;
+const HITBOX_VIEWPORT_SCALE = 1.15;
+const HITBOX_MOBILE_WIDTH = 1000;
+const HITBOX_MOBILE_USER_AGENT = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
 
 interface FullscreenRenderStateOptions {
   editorLayerSelector: string;
@@ -27,28 +32,20 @@ export function createFullscreenRenderState(options: FullscreenRenderStateOption
   }
 
   function getBaseGameSize(): FullscreenBaseSize {
-    return getNativeBaseGameSize({
-      width: options.fallbackBaseWidth,
-      height: options.fallbackBaseHeight,
-    });
-  }
-
-  function isEditorLayer(element: unknown): element is Element {
-    return element instanceof Element && element.id === 'editorContainer';
+    const nativeScale = window.innerWidth / HITBOX_REFERENCE_VIEWPORT_WIDTH * HITBOX_VIEWPORT_SCALE;
+    const nativeWidth = HITBOX_MOBILE_USER_AGENT.test(window.navigator?.userAgent ?? '')
+      ? HITBOX_MOBILE_WIDTH
+      : options.fallbackBaseWidth;
+    return {
+      width: Math.max(1, Math.floor(nativeWidth * nativeScale)),
+      height: Math.max(1, Math.floor(options.fallbackBaseHeight * nativeScale)),
+    };
   }
 
   function isCanvasElement(element: unknown): element is Element {
     return (
       element instanceof Element &&
       element.tagName === 'CANVAS'
-    );
-  }
-
-  function isEditorCanvas(element: unknown): element is Element {
-    return (
-      isCanvasElement(element) &&
-      element.parentElement instanceof Element &&
-      element.parentElement.id === 'editorContainer'
     );
   }
 
@@ -101,8 +98,10 @@ export function createFullscreenRenderState(options: FullscreenRenderStateOption
     const relativeRect = relativeContainer ? relativeContainer.getBoundingClientRect() : null;
     const renderRect = renderLayer ? renderLayer.getBoundingClientRect() : null;
     const renderers = getKnownFullscreenRenderers();
+    const renderer = renderers.find(candidate => getRendererView(candidate) === renderLayer);
+    const pixiRenderer = readNativeProperty(renderer, 'Ag');
+    const rendererScreen = readNativeProperty(pixiRenderer, 'screen');
     const backingSize = getCanvasBackingSize(renderLayer);
-    const nativeLayoutSize = getNativeFullscreenLayoutSize();
 
     return {
       appWidth: appRect ? Math.round(appRect.width) : 0,
@@ -116,8 +115,9 @@ export function createFullscreenRenderState(options: FullscreenRenderStateOption
       backingWidth: backingSize ? Math.round(backingSize.width) : 0,
       backingHeight: backingSize ? Math.round(backingSize.height) : 0,
       rendererCount: renderers.length,
-      nativeWidth: nativeLayoutSize.width,
-      nativeHeight: nativeLayoutSize.height,
+      rendererLogicalWidth: Number(readNativeProperty(rendererScreen, 'width')) || 0,
+      rendererLogicalHeight: Number(readNativeProperty(rendererScreen, 'height')) || 0,
+      rendererResolution: Number(readNativeProperty(pixiRenderer, 'resolution')) || 0,
     };
   }
 
@@ -127,7 +127,5 @@ export function createFullscreenRenderState(options: FullscreenRenderStateOption
     getBaseGameSize,
     getLayoutProbe,
     getViewportSize,
-    isEditorCanvas,
-    isEditorLayer,
   };
 }

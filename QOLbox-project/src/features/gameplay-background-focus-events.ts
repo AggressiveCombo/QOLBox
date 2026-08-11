@@ -1,48 +1,44 @@
 import { readObjectProperty, setObjectProperty } from '../utils/object-properties';
 
-export function readGameplayFocusProperty(source: unknown, property: PropertyKey): unknown {
-  return readObjectProperty(source, property);
-}
-
 function readStringProperty(source: unknown, property: PropertyKey): string {
-  const value = readGameplayFocusProperty(source, property);
+  const value = readObjectProperty(source, property);
   return typeof value === 'string' ? value : '';
 }
 
 function readNumberProperty(source: unknown, property: PropertyKey): number {
-  const value = readGameplayFocusProperty(source, property);
+  const value = readObjectProperty(source, property);
   return typeof value === 'number' ? value : Number(value);
 }
 
 export function readGameplayFocusBooleanProperty(source: unknown, property: PropertyKey): boolean {
-  return readGameplayFocusProperty(source, property) === true;
+  return readObjectProperty(source, property) === true;
 }
 
 export function canPreventGameplayDefault(event: unknown): event is { preventDefault(): void } {
   return (
     typeof event === 'object' &&
     event !== null &&
-    typeof readGameplayFocusProperty(event, 'preventDefault') === 'function'
+    typeof readObjectProperty(event, 'preventDefault') === 'function'
   );
 }
 
 function canDispatchEvents(element: unknown): element is Element & { dispatchEvent(event: Event): boolean } {
-  return element instanceof Element && typeof readGameplayFocusProperty(element, 'dispatchEvent') === 'function';
+  return element instanceof Element && typeof readObjectProperty(element, 'dispatchEvent') === 'function';
 }
 
 export function canBlurGameplayFocusTarget(element: unknown): element is { blur(): void } {
   return (
     typeof element === 'object' &&
     element !== null &&
-    typeof readGameplayFocusProperty(element, 'blur') === 'function'
+    typeof readObjectProperty(element, 'blur') === 'function'
   );
 }
 
 function hasTabIndexApi(element: unknown): element is Element & { hasAttribute(name: string): boolean; tabIndex: number } {
   return (
     element instanceof Element &&
-    typeof readGameplayFocusProperty(element, 'hasAttribute') === 'function' &&
-    typeof readGameplayFocusProperty(element, 'tabIndex') === 'number'
+    typeof readObjectProperty(element, 'hasAttribute') === 'function' &&
+    typeof readObjectProperty(element, 'tabIndex') === 'number'
   );
 }
 
@@ -57,7 +53,7 @@ function getPointerEventType(event: unknown): string {
 }
 
 export function isPrimaryGameplayMouseButton(event: unknown): boolean {
-  const button = readGameplayFocusProperty(event, 'button');
+  const button = readObjectProperty(event, 'button');
   return button === undefined || button === 0;
 }
 
@@ -89,7 +85,7 @@ function createForwardedPointerEvent(event: unknown, clientX: number, clientY: n
       ...commonInit,
       pointerId: readNumberProperty(event, 'pointerId') || 1,
       pointerType: readStringProperty(event, 'pointerType') || 'mouse',
-      isPrimary: readGameplayFocusProperty(event, 'isPrimary') !== false,
+      isPrimary: readObjectProperty(event, 'isPrimary') !== false,
     });
   }
 

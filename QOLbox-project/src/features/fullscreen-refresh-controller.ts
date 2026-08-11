@@ -2,82 +2,70 @@ import type { FullscreenDimensions, FullscreenLayoutProbe } from './fullscreen-t
 import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
 
 interface FullscreenRefreshControllerOptions {
-  buildFullscreenSignature(dimensions: FullscreenDimensions, probe: FullscreenLayoutProbe): string;
-  clearFullscreenLayoutStyles(): void;
   enforceFullscreenLayout(dimensions: FullscreenDimensions): void;
   getFullscreenDimensions(): FullscreenDimensions;
   getLayoutProbe(): FullscreenLayoutProbe;
-  installNativeFullscreenPatch(): void;
   isFullscreenEnabled(): boolean;
   isMenuGameplayOverlap(): boolean;
-  isNativeProbeAligned(probe: FullscreenLayoutProbe, dimensions: FullscreenDimensions): boolean;
   isRenderProbeAligned(probe: FullscreenLayoutProbe, dimensions: FullscreenDimensions): boolean;
   patchLobbyMusicController(): void;
   resizeKnownFullscreenRenderers(dimensions: FullscreenDimensions): void;
-  runNativeResize(dimensions: FullscreenDimensions): boolean;
   scheduleUiWork(request: ScheduledUiWorkRequest): void;
-  setNativeFullscreenSize(dimensions: FullscreenDimensions): void;
   shouldWaitForNativeLayoutSeed(): boolean;
-  stopLobbyMusicIfNeeded(): void;
   syncNonFullscreenHud(): void;
   updateGameStartIndicator(): void;
 }
 
 export function createFullscreenRefreshController(options: FullscreenRefreshControllerOptions) {
-  let lastFullscreenSignature = '';
+  let nativeSeedRetryTimer = 0;
 
-  function clearFullscreenSignature(): void {
-    lastFullscreenSignature = '';
+  function clearNativeSeedRetry(): void {
+    if (!nativeSeedRetryTimer) {
+      return;
+    }
+    window.clearTimeout(nativeSeedRetryTimer);
+    nativeSeedRetryTimer = 0;
   }
 
-  function refreshFullscreen(force = false): boolean {
+  function refreshFullscreen(): boolean {
     if (!options.isFullscreenEnabled()) {
-      options.clearFullscreenLayoutStyles();
+      clearNativeSeedRetry();
       options.syncNonFullscreenHud();
       return false;
     }
 
     if (options.shouldWaitForNativeLayoutSeed()) {
-      window.setTimeout(() => options.scheduleUiWork({ force: true, passes: 1 }), 100);
+      if (!nativeSeedRetryTimer) {
+        nativeSeedRetryTimer = window.setTimeout(() => {
+          nativeSeedRetryTimer = 0;
+          options.scheduleUiWork({ passes: 1 });
+        }, 100);
+      }
       return false;
     }
 
+    clearNativeSeedRetry();
+
     const dimensions = options.getFullscreenDimensions();
-    const probe = options.getLayoutProbe();
-    const signature = options.buildFullscreenSignature(dimensions, probe);
     const transitionOverlap = options.isMenuGameplayOverlap();
 
     options.patchLobbyMusicController();
-    options.stopLobbyMusicIfNeeded();
     options.updateGameStartIndicator();
     options.enforceFullscreenLayout(dimensions);
-    options.installNativeFullscreenPatch();
-    options.setNativeFullscreenSize(dimensions);
 
-    if (
-      !force &&
-      signature === lastFullscreenSignature &&
-      options.isRenderProbeAligned(probe, dimensions) &&
-      options.isNativeProbeAligned(probe, dimensions)
-    ) {
-      return false;
-    }
-
-    lastFullscreenSignature = signature;
-    const resizedNatively = options.runNativeResize(dimensions);
-    const postNativeProbe = options.getLayoutProbe();
-
-    if (!transitionOverlap && (!resizedNatively || !options.isRenderProbeAligned(postNativeProbe, dimensions))) {
+    if (!transitionOverlap) {
       options.resizeKnownFullscreenRenderers(dimensions);
     }
 
+    if (options.isRenderProbeAligned(options.getLayoutProbe(), dimensions)) {
+      return false;
+    }
+
     options.enforceFullscreenLayout(dimensions);
-    lastFullscreenSignature = options.buildFullscreenSignature(dimensions, options.getLayoutProbe());
     return true;
   }
 
   return {
-    clearFullscreenSignature,
     refreshFullscreen,
   };
 }

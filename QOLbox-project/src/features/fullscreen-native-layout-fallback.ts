@@ -1,4 +1,5 @@
 import { getCanvasBackingSize, isStyledElement, type StyleDeclarationLike } from '../dom/element-guards';
+import { getRendererLogicalSize } from '../hitbox/renderer-adapter';
 
 interface FullscreenNativeLayoutFallbackOptions {
   getActiveRenderCanvas(): Element | null;
@@ -18,9 +19,9 @@ function hasStyleSize(element: unknown): boolean {
   return Boolean(style?.width && style.height);
 }
 
-function setStyleSizeIfEmpty(element: unknown, width: string, height: string): void {
+function setStyleSize(element: unknown, width: string, height: string): void {
   const style = getStyleDeclaration(element);
-  if (!style || style.width || style.height) {
+  if (!style) {
     return;
   }
 
@@ -59,34 +60,24 @@ export function createFullscreenNativeLayoutFallback(options: FullscreenNativeLa
     const canvasSize = getCanvasBackingSize(canvas);
     const backingWidth = canvasSize?.width ?? Number.NaN;
     const backingHeight = canvasSize?.height ?? Number.NaN;
-    const pixelRatio = Math.max(1, Number(window.devicePixelRatio) || 1);
-    const width = backingWidth / pixelRatio;
-    const height = backingHeight / pixelRatio;
+    const rawPixelRatio = Number(window.devicePixelRatio);
+    const pixelRatio = Number.isFinite(rawPixelRatio) && rawPixelRatio > 0 ? rawPixelRatio : 1;
+    const rendererSize = getRendererLogicalSize(canvas);
+    const nativeWidth = rendererSize?.width ?? backingWidth / pixelRatio;
+    const nativeHeight = rendererSize?.height ?? backingHeight / pixelRatio;
+    const fitScale = Math.min(1, window.innerWidth / nativeWidth, window.innerHeight / nativeHeight);
+    const width = nativeWidth * fitScale;
+    const height = nativeHeight * fitScale;
 
-    if (
-      !Number.isFinite(width) ||
-      !Number.isFinite(height) ||
-      width <= 0 ||
-      height <= 0 ||
-      width >= window.innerWidth * 0.98 ||
-      height >= window.innerHeight * 0.98
-    ) {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
       return;
     }
 
-    const containerWidthPx = `${Math.floor(width)}px`;
-    const containerHeightPx = `${Math.floor(height)}px`;
     const canvasWidthPx = `${Math.round(width * 10) / 10}px`;
     const canvasHeightPx = `${Math.round(height * 10) / 10}px`;
-
-    for (const element of [
-      document.getElementById('appContainer'),
-      document.getElementById('relativeContainer'),
-    ]) {
-      setStyleSizeIfEmpty(element, containerWidthPx, containerHeightPx);
+    for (const element of [document.getElementById('appContainer'), document.getElementById('relativeContainer'), canvas]) {
+      setStyleSize(element, canvasWidthPx, canvasHeightPx);
     }
-
-    setStyleSizeIfEmpty(canvas, canvasWidthPx, canvasHeightPx);
   }
 
   return {

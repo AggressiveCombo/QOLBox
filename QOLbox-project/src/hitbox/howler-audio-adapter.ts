@@ -1,23 +1,24 @@
 import {
   isNativeReflectTarget,
   readNativeReflectProperty,
+  replaceNativeReflectProperty,
   setNativeReflectProperty,
 } from './native-access';
+import { isCallable } from '../utils/object-properties';
 
 type NativeCallable = (...args: unknown[]) => unknown;
 
 interface HowlerGameAudioAdapterOptions {
   getGameVolumeScalar(): number;
   isAudioEnabled(): boolean;
+  playCustomSound?(howl: unknown): number | null;
+  stopCustomSound?(howl: unknown, id?: unknown): boolean;
   shouldSuppressReserveRetryAudio(): boolean;
-}
-
-function isNativeCallable(value: unknown): value is NativeCallable {
-  return typeof value === 'function';
 }
 
 export function createHowlerGameAudioAdapter(options: HowlerGameAudioAdapterOptions) {
   let originalHowlVolume: NativeCallable | null = null;
+  let originalHowlStop: NativeCallable | null = null;
   let settingGameVolumeInternally = false;
 
   function applyGameVolumeToHowls(): void {
@@ -63,16 +64,16 @@ export function createHowlerGameAudioAdapter(options: HowlerGameAudioAdapterOpti
 
     const currentVolumeMethod = readNativeReflectProperty(howlPrototype, 'volume');
     let volumePatched = Boolean(
-      isNativeCallable(currentVolumeMethod) &&
+      isCallable(currentVolumeMethod) &&
         readNativeReflectProperty(currentVolumeMethod, '__qolboxWrapped') === true
     );
 
-    if (!volumePatched && isNativeCallable(currentVolumeMethod)) {
+    if (!volumePatched && isCallable(currentVolumeMethod)) {
       const baseVolumeMethod = currentVolumeMethod;
       originalHowlVolume = baseVolumeMethod;
 
-      function wrappedVolume(this: unknown, value?: unknown, ...rest: unknown[]): unknown {
-        if (arguments.length === 0) {
+      function wrappedVolume(this: unknown, ...args: unknown[]): unknown {
+        if (!args.length) {
           const baseVolume = readNativeReflectProperty(this, '__qolboxBaseVolume');
           if (typeof baseVolume === 'number') {
             return baseVolume;
@@ -81,6 +82,7 @@ export function createHowlerGameAudioAdapter(options: HowlerGameAudioAdapterOpti
           return Reflect.apply(baseVolumeMethod, this, []);
         }
 
+        const [value, ...rest] = args;
         if (typeof value === 'number' && !settingGameVolumeInternally) {
           setNativeReflectProperty(this, '__qolboxBaseVolume', value);
           return Reflect.apply(baseVolumeMethod, this, [value * options.getGameVolumeScalar(), ...rest]);
@@ -90,27 +92,45 @@ export function createHowlerGameAudioAdapter(options: HowlerGameAudioAdapterOpti
       }
 
       setNativeReflectProperty(wrappedVolume, '__qolboxWrapped', true);
-      setNativeReflectProperty(howlPrototype, 'volume', wrappedVolume);
-      volumePatched = true;
+      volumePatched = replaceNativeReflectProperty(howlPrototype, 'volume', wrappedVolume);
     }
 
     const currentPlayMethod = readNativeReflectProperty(howlPrototype, 'play');
     const playPatched =
-      isNativeCallable(currentPlayMethod) &&
+      isCallable(currentPlayMethod) &&
       readNativeReflectProperty(currentPlayMethod, '__qolboxReserveAudioWrapped');
-    if (isNativeCallable(currentPlayMethod) && !playPatched) {
+    if (isCallable(currentPlayMethod) && !playPatched) {
       const basePlayMethod = currentPlayMethod;
 
       function wrappedPlay(this: unknown, ...args: unknown[]): unknown {
-        if (options.shouldSuppressReserveRetryAudio()) {
+        if (options.isAudioEnabled() && options.shouldSuppressReserveRetryAudio()) {
           return undefined;
+        }
+
+        const customPlaybackId = options.isAudioEnabled() ? options.playCustomSound?.(this) : null;
+        if (typeof customPlaybackId === 'number') {
+          if (originalHowlStop) Reflect.apply(originalHowlStop, this, []);
+          return customPlaybackId;
         }
 
         return Reflect.apply(basePlayMethod, this, args);
       }
 
       setNativeReflectProperty(wrappedPlay, '__qolboxReserveAudioWrapped', true);
-      setNativeReflectProperty(howlPrototype, 'play', wrappedPlay);
+      replaceNativeReflectProperty(howlPrototype, 'play', wrappedPlay);
+    }
+
+    const currentStopMethod = readNativeReflectProperty(howlPrototype, 'stop');
+    const stopPatched = isCallable(currentStopMethod) && readNativeReflectProperty(currentStopMethod, '__qolboxSoundBankWrapped');
+    if (isCallable(currentStopMethod) && !stopPatched) {
+      const baseStopMethod = currentStopMethod;
+      originalHowlStop = baseStopMethod;
+      function wrappedStop(this: unknown, id?: unknown, ...rest: unknown[]): unknown {
+        if (options.stopCustomSound?.(this, id)) return this;
+        return Reflect.apply(baseStopMethod, this, [id, ...rest]);
+      }
+      setNativeReflectProperty(wrappedStop, '__qolboxSoundBankWrapped', true);
+      replaceNativeReflectProperty(howlPrototype, 'stop', wrappedStop);
     }
 
     return volumePatched;

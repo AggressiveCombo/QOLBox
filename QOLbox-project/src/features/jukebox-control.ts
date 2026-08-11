@@ -6,9 +6,9 @@ import { createJukeboxKeyboardFocusController } from './jukebox-keyboard-focus';
 import { createJukeboxKnobInteractionController } from './jukebox-knob-interaction';
 import { createJukeboxMenuController } from './jukebox-menu-control';
 import {
-  clearJukeboxKnobAccessibility,
   findJukeboxKnob,
   readJukeboxPercentFromKnob,
+  restoreJukeboxKnobViews,
   setJukeboxKnobVisual,
 } from './jukebox-knob-view';
 import { createJukeboxStateController } from './jukebox-state';
@@ -33,7 +33,7 @@ interface JukeboxControllerOptions {
 export function createJukeboxController(options: JukeboxControllerOptions) {
   const jukeboxState = createJukeboxStateController();
   const youTubeAdapter = createYouTubeJukeboxAdapter({
-    getVolume: () => percentToJukeboxVolume(getEffectiveJukeboxPercent()),
+    getVolume: () => percentToJukeboxVolume(jukeboxState.getEffectivePercent()),
     isEnabled: options.isAudioEnabled,
     isMuted: () => jukeboxState.isMuted(),
     maxRetries: options.youTubeHookMaxRetries,
@@ -54,7 +54,7 @@ export function createJukeboxController(options: JukeboxControllerOptions) {
   const menuController = createJukeboxMenuController({
     findChangeControlsItem: options.findChangeControlsItem,
     findSettingsContainer: options.findSettingsContainer,
-    getLabel: getJukeboxMenuLabel,
+    getLabel: jukeboxState.getMenuLabel,
     isAudioEnabled: options.isAudioEnabled,
     onToggleMute: toggleJukeboxMute,
   });
@@ -63,38 +63,14 @@ export function createJukeboxController(options: JukeboxControllerOptions) {
     wheelStep: options.jukeboxWheelStep,
     applyJukeboxState,
     ensureJukeboxPercent,
-    getEffectiveJukeboxPercent,
+    getEffectiveJukeboxPercent: jukeboxState.getEffectivePercent,
     getJukeboxPercent: () => jukeboxState.getPercent(),
     isAudioEnabled: options.isAudioEnabled,
     isJukeboxMuted: () => jukeboxState.isMuted(),
     setJukeboxPercent,
     unmuteJukeboxIfMuted: () => jukeboxState.unmuteIfMuted(),
-    updateJukeboxMenuItem,
+    updateJukeboxMenuItem: menuController.updateJukeboxMenuItem,
   });
-
-  function installTabFocusHooks(): void {
-    keyboardFocus.installTabFocusHooks();
-  }
-
-  function patchJukeboxKeyboardFocus(knob: Element | null): void {
-    keyboardFocus.patchJukeboxKeyboardFocus(knob);
-  }
-
-  function getJukeboxMenuLabel(): string {
-    return jukeboxState.getMenuLabel();
-  }
-
-  function updateJukeboxMenuItem(): void {
-    menuController.updateJukeboxMenuItem();
-  }
-
-  function patchJukeboxMenu(): boolean {
-    return menuController.patchJukeboxMenu();
-  }
-
-  function getEffectiveJukeboxPercent(): number {
-    return jukeboxState.getEffectivePercent();
-  }
 
   function ensureJukeboxPercent(knob: Element | null): void {
     if (!knob) {
@@ -125,21 +101,13 @@ export function createJukeboxController(options: JukeboxControllerOptions) {
     youTubeAdapter.applyToTrackedPlayers();
   }
 
-  function installYouTubeReadyCallbackHook(): void {
-    youTubeAdapter.installReadyCallbackHook();
-  }
-
-  function hookYouTubePlayer(): boolean {
-    return youTubeAdapter.hookPlayerConstructor();
-  }
-
   function setJukeboxPercent(nextPercent: number): void {
     if (!options.isAudioEnabled()) {
       return;
     }
 
     jukeboxState.setPercent(nextPercent);
-    updateJukeboxMenuItem();
+    menuController.updateJukeboxMenuItem();
     setJukeboxKnobVisual(findJukeboxKnob(), jukeboxState.getPercent(), jukeboxState.getState());
     applyJukeboxState();
   }
@@ -151,7 +119,7 @@ export function createJukeboxController(options: JukeboxControllerOptions) {
 
     ensureJukeboxPercent(findJukeboxKnob());
     jukeboxState.toggleMuted();
-    updateJukeboxMenuItem();
+    menuController.updateJukeboxMenuItem();
     applyJukeboxState();
   }
 
@@ -167,25 +135,15 @@ export function createJukeboxController(options: JukeboxControllerOptions) {
 
     ensureJukeboxPercent(knob);
     applyJukeboxStateToKnob(knob);
-    patchJukeboxKeyboardFocus(knob);
+    keyboardFocus.patchJukeboxKeyboardFocus(knob);
     knobInteraction.patchJukeboxKnobInteraction(knob);
 
     return true;
   }
 
-  function removeJukeboxMenuItem(): void {
-    menuController.removeJukeboxMenuItem();
-  }
-
   function restoreJukeboxState(): void {
-    const knob = findJukeboxKnob();
-    const nativePercent = readJukeboxPercentFromKnob(knob);
-    const restorePercent =
-      jukeboxState.isMuted() && nativePercent === 0
-        ? getEffectiveJukeboxPercent()
-        : nativePercent ?? getEffectiveJukeboxPercent();
-    clearJukeboxKnobAccessibility(knob);
-    youTubeAdapter.restoreTrackedPlayers(percentToJukeboxVolume(restorePercent));
+    restoreJukeboxKnobViews();
+    youTubeAdapter.restoreTrackedPlayers();
   }
 
   function setJukeboxState(nextState: { muted?: boolean; percent?: number | null }): void {
@@ -195,15 +153,15 @@ export function createJukeboxController(options: JukeboxControllerOptions) {
   return {
     applyJukeboxState,
     findJukeboxKnob,
-    getEffectiveJukeboxPercent,
+    getEffectiveJukeboxPercent: jukeboxState.getEffectivePercent,
     handleGameplayTabFocus: keyboardFocus.handleGameplayTabFocus,
-    hookYouTubePlayer,
-    installTabFocusHooks,
-    installYouTubeReadyCallbackHook,
-    patchJukeboxKeyboardFocus,
+    hookYouTubePlayer: youTubeAdapter.hookPlayerConstructor,
+    installTabFocusHooks: keyboardFocus.installTabFocusHooks,
+    installYouTubeReadyCallbackHook: youTubeAdapter.installReadyCallbackHook,
+    patchJukeboxKeyboardFocus: keyboardFocus.patchJukeboxKeyboardFocus,
     patchJukeboxKnob,
-    patchJukeboxMenu,
-    removeJukeboxMenuItem,
+    patchJukeboxMenu: menuController.patchJukeboxMenu,
+    removeJukeboxMenuItem: menuController.removeJukeboxMenuItem,
     restoreJukeboxState,
     setJukeboxState,
   };

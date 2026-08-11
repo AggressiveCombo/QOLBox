@@ -1,6 +1,7 @@
 import {
   FEATURE_AUDIO,
   FEATURE_CHAT,
+  FEATURE_EDITOR_FORCE_SAVE,
   FEATURE_EDITOR_MAP_TRANSFER,
   FEATURE_FULLSCREEN,
   FEATURE_GAME_START_ALERT,
@@ -16,9 +17,10 @@ interface StopReserveOptions {
 }
 
 interface FeatureSideEffectsOptions {
-  applyFeatureRootClasses(): void;
   applyGameVolume(): void;
   applyJukeboxState(): void;
+  decorateActions(): void;
+  cleanupGameVolumeMenu(): void;
   clearFullscreenLayoutStyles(): void;
   clearReservePasswordPromptPending(): void;
   clearTypingIndicators(): void;
@@ -34,10 +36,13 @@ interface FeatureSideEffectsOptions {
   patchInGameChatScroll(): void;
   patchGameVolumeMenu(): void;
   patchEditorMapFileTransfer(): void;
+  patchEditorSelectionControls(): void;
   patchJukeboxKnob(): void;
   patchJukeboxMenu(): void;
+  patchHamburgerAudioGroup(): void;
   patchLobbyMusicController(): void;
   patchLobbyBlacklist(): void;
+  patchLobbyInformation(): void;
   patchMobileGrabButton(): void;
   patchMobileQolboxHamburgerEntry(): void;
   patchReserveSpotFeature(): void;
@@ -45,6 +50,7 @@ interface FeatureSideEffectsOptions {
   patchSwitchTeamsButton(): void;
   patchTypingIndicatorHooks(): void;
   removeJukeboxMenuItem(): void;
+  removeHamburgerAudioGroup(): void;
   removeEditorMapFileTransfer(): void;
   removeMobileGrabButton(): void;
   removeSwitchTeamsButton(): void;
@@ -52,6 +58,7 @@ interface FeatureSideEffectsOptions {
   restoreJukeboxState(): void;
   featureGates: FeatureGateSet;
   stopReserveSpot(options?: StopReserveOptions): void;
+  stopCustomSounds(): void;
   syncScoreRows(): void;
   syncReserveJoinButtonLabel(): void;
   syncTypingIndicators(): void;
@@ -70,9 +77,13 @@ export function createFeatureSideEffectsController(options: FeatureSideEffectsOp
         options.disableGameStartAlerts();
         break;
       case FEATURE_AUDIO:
+        options.stopCustomSounds();
+        options.removeHamburgerAudioGroup();
+        options.cleanupGameVolumeMenu();
         options.removeJukeboxMenuItem();
         options.restoreJukeboxState();
         options.applyGameVolume();
+        options.patchLobbyMusicController();
         break;
       case FEATURE_FULLSCREEN:
         options.clearFullscreenLayoutStyles();
@@ -82,6 +93,7 @@ export function createFeatureSideEffectsController(options: FeatureSideEffectsOp
         }
         break;
       case FEATURE_EDITOR_MAP_TRANSFER:
+      case FEATURE_EDITOR_FORCE_SAVE:
         options.removeEditorMapFileTransfer();
         break;
       case FEATURE_MOBILE_GRAB:
@@ -101,12 +113,13 @@ export function createFeatureSideEffectsController(options: FeatureSideEffectsOp
   }
 
   function applyPersistentFeatures(): void {
-    options.applyFeatureRootClasses();
     options.installPlayerPopupDismissal();
     options.patchSlashCommands();
     options.patchLobbyBlacklist();
+    options.patchLobbyInformation();
     options.patchSwitchTeamsButton();
     options.patchMobileQolboxHamburgerEntry();
+    options.patchEditorSelectionControls();
 
     if (options.featureGates.isReserveEnabled()) {
       options.patchReserveSpotFeature();
@@ -137,7 +150,7 @@ export function createFeatureSideEffectsController(options: FeatureSideEffectsOp
       disableFeatureSideEffects(FEATURE_MOBILE_GRAB);
     }
 
-    if (options.featureGates.isEditorMapTransferEnabled()) {
+    if (options.featureGates.isEditorMapTransferEnabled() || options.featureGates.isEditorForceSaveEnabled()) {
       options.patchEditorMapFileTransfer();
     } else {
       disableFeatureSideEffects(FEATURE_EDITOR_MAP_TRANSFER);
@@ -151,11 +164,14 @@ export function createFeatureSideEffectsController(options: FeatureSideEffectsOp
       options.installYouTubeReadyCallbackHook();
       options.hookYouTubePlayer();
       options.patchJukeboxMenu();
+      options.patchHamburgerAudioGroup();
       options.patchJukeboxKnob();
       options.applyJukeboxState();
     } else {
       disableFeatureSideEffects(FEATURE_AUDIO);
     }
+
+    options.decorateActions();
   }
 
   return {

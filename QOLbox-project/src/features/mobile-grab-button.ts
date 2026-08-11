@@ -42,21 +42,9 @@ export function createMobileGrabController(dependencies: MobileGrabControllerDep
   const mobileGrabPress = createMobileGrabPressController({
     getButton: () => mobileGrabButton,
     isPressed: () => mobileGrabInput.isMobileGrabPressed(),
-    setPressed: pressed => setMobileGrabPressed(pressed),
+    setPressed: mobileGrabInput.setMobileGrabPressed,
     shouldShow: () => shouldShowMobileGrabButton(),
   });
-
-  function isMobileGameMode(): boolean {
-    return isMobileGameModeContext();
-  }
-
-  function isMobileQolboxMenuContext(): boolean {
-    return isMobileQolboxMenuContextValue();
-  }
-
-  function setMobileGrabPressed(pressed: unknown): void {
-    mobileGrabInput.setMobileGrabPressed(pressed);
-  }
 
   function hideMobileGrabButton(): void {
     mobileGrabPress.resetMobileGrabPress();
@@ -66,10 +54,6 @@ export function createMobileGrabController(dependencies: MobileGrabControllerDep
   function removeMobileGrabButton(): void {
     hideMobileGrabButton();
     mobileGrabButton = removeMobileGrabButtonElement(mobileGrabButton);
-  }
-
-  function handleMobileGrabPointerStart(event: unknown): void {
-    mobileGrabPress.handleMobileGrabPointerStart(event);
   }
 
   function ensureMobileGrabButton(): HTMLElement | null {
@@ -83,7 +67,8 @@ export function createMobileGrabController(dependencies: MobileGrabControllerDep
     }
 
     const button = createMobileGrabButtonElement(container, {
-      onPointerStart: handleMobileGrabPointerStart,
+      onKeyboardChange: mobileGrabInput.setMobileGrabPressed,
+      onPointerStart: mobileGrabPress.handleMobileGrabPointerStart,
       onTouchStart: mobileGrabPress.handleMobileGrabTouchStart,
     });
     mobileGrabButton = button;
@@ -100,11 +85,11 @@ export function createMobileGrabController(dependencies: MobileGrabControllerDep
   }
 
   function shouldShowMobileGrabButton(): boolean {
-    return Boolean(dependencies.isEnabled() && isMobileGameMode() && areNativeMobileAbilityButtonsVisible());
+    return Boolean(dependencies.isEnabled() && isMobileGameModeContext() && areNativeMobileAbilityButtonsVisible());
   }
 
   function syncMobileGrabButton(): boolean {
-    if (!dependencies.isEnabled() || !isMobileGameMode()) {
+    if (!dependencies.isEnabled() || !isMobileGameModeContext()) {
       removeMobileGrabButton();
       return false;
     }
@@ -152,14 +137,14 @@ export function createMobileGrabController(dependencies: MobileGrabControllerDep
   }
 
   return {
-    handleMobileGrabPointerStart,
+    handleMobileGrabPointerStart: mobileGrabPress.handleMobileGrabPointerStart,
     hideMobileGrabButton,
-    isMobileGameMode,
-    isMobileQolboxMenuContext,
+    isMobileGameMode: isMobileGameModeContext,
+    isMobileQolboxMenuContext: isMobileQolboxMenuContextValue,
     layoutMobileGrabButton,
     patchMobileGrabButton,
     removeMobileGrabButton,
-    setMobileGrabPressed,
+    setMobileGrabPressed: mobileGrabInput.setMobileGrabPressed,
     shouldShowMobileGrabButton,
     syncMobileGrabButton,
   };

@@ -2,8 +2,11 @@ import {
   isNativeObject,
   readNativeProperty,
   readNativeReflectProperty,
+  replaceNativeReflectProperty,
   setNativeReflectProperty,
 } from './native-access';
+import { isCallable } from '../utils/object-properties';
+import { HITBOX_NATIVE } from './native-contract';
 
 type NativeCallable = (...args: unknown[]) => unknown;
 
@@ -18,15 +21,11 @@ interface GameStartHookCallbacks {
   noteLocalStartRequest(session: unknown): void;
 }
 
-const REMOTE_START_METHODS: readonly string[] = ['KJ', 'ZJ'];
-const LOCAL_START_METHOD = '_J';
-
-function isNativeCallable(value: unknown): value is NativeCallable {
-  return typeof value === 'function';
-}
+const REMOTE_START_METHODS: readonly string[] = HITBOX_NATIVE.session.remoteGameStart;
+const LOCAL_START_METHOD = HITBOX_NATIVE.session.localGameStart;
 
 function isWrappedGameStartMethod(method: unknown): boolean {
-  return isNativeCallable(method) && readNativeReflectProperty(method, '__qolboxWrapped') === true;
+  return isCallable(method) && readNativeReflectProperty(method, '__qolboxWrapped') === true;
 }
 
 function markWrappedGameStartMethod(method: NativeCallable, originalMethod: NativeCallable): void {
@@ -37,7 +36,7 @@ function markWrappedGameStartMethod(method: NativeCallable, originalMethod: Nati
 export function areGameStartSessionHooksInstalled(session: unknown): boolean {
   return [...REMOTE_START_METHODS, LOCAL_START_METHOD].every(methodName => {
     const method = readNativeProperty(session, methodName);
-    return !isNativeCallable(method) || isWrappedGameStartMethod(method);
+    return !isCallable(method) || isWrappedGameStartMethod(method);
   });
 }
 
@@ -46,18 +45,17 @@ export function installGameStartSessionHooks(session: unknown, callbacks: GameSt
     return false;
   }
 
-  let foundRemoteStartHandler = false;
+  let hookInstalled = false;
 
   // Current hitbox.io game-start handlers observed in the live bundle.
   for (const methodName of REMOTE_START_METHODS) {
     const originalMethod = readNativeProperty(session, methodName);
-    if (!isNativeCallable(originalMethod)) {
+    if (!isCallable(originalMethod)) {
       continue;
     }
 
-    foundRemoteStartHandler = true;
-
     if (isWrappedGameStartMethod(originalMethod)) {
+      hookInstalled = true;
       continue;
     }
 
@@ -75,20 +73,19 @@ export function installGameStartSessionHooks(session: unknown, callbacks: GameSt
     };
 
     markWrappedGameStartMethod(wrappedMethod, originalMethod);
-    setNativeReflectProperty(session, methodName, wrappedMethod);
+    hookInstalled = replaceNativeReflectProperty(session, methodName, wrappedMethod) || hookInstalled;
   }
 
   const originalStartRequest = readNativeProperty(session, LOCAL_START_METHOD);
-  if (isNativeCallable(originalStartRequest) && !isWrappedGameStartMethod(originalStartRequest)) {
+  if (isCallable(originalStartRequest) && !isWrappedGameStartMethod(originalStartRequest)) {
     const wrappedStartRequest = function wrappedLocalGameStartRequest(this: unknown, ...args: unknown[]): unknown {
       callbacks.noteLocalStartRequest(this);
       return Reflect.apply(originalStartRequest, this, args);
     };
 
     markWrappedGameStartMethod(wrappedStartRequest, originalStartRequest);
-    setNativeReflectProperty(session, LOCAL_START_METHOD, wrappedStartRequest);
+    hookInstalled = replaceNativeReflectProperty(session, LOCAL_START_METHOD, wrappedStartRequest) || hookInstalled;
   }
 
-  const startRequest = readNativeProperty(session, LOCAL_START_METHOD);
-  return foundRemoteStartHandler || (isNativeCallable(startRequest) && isWrappedGameStartMethod(startRequest));
+  return hookInstalled;
 }

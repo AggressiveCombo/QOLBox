@@ -1,12 +1,12 @@
 import { focusElementWithoutScroll } from '../dom/dom-helpers';
 import { DEFAULT_JUKEBOX_PERCENT, clampJukeboxPercent } from '../settings/audio-storage';
+import { setObjectProperty } from '../utils/object-properties';
 import { getKeyboardPercentTarget } from './audio-levels';
 import {
   type JukeboxStyleDatasetElement,
   readJukeboxBooleanProperty,
   readJukeboxNumberProperty,
   requestJukeboxPointerCapture,
-  setJukeboxProperty,
 } from './jukebox-dom-helpers';
 
 interface KnobDragState {
@@ -62,7 +62,7 @@ export function createJukeboxKnobInteractionController(options: JukeboxKnobInter
       return;
     }
 
-    setJukeboxProperty(window, '__qolboxJukeboxGlobalsPatched', true);
+    setObjectProperty(window, '__qolboxJukeboxGlobalsPatched', true);
     window.addEventListener('pointermove', onKnobPointerMove, true);
     window.addEventListener('mousemove', onKnobPointerMove, true);
     window.addEventListener('pointerup', endKnobDrag, true);

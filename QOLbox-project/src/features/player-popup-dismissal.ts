@@ -7,7 +7,12 @@ function getRightClickMenus(): HTMLElement[] {
 function removePlayerPopups(): boolean {
   const menus = getRightClickMenus();
   for (const menu of menus) {
-    menu.remove();
+    const background = menu.querySelector<HTMLElement>('.background');
+    if (background) {
+      background.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    } else {
+      menu.remove();
+    }
   }
   return menus.length > 0;
 }

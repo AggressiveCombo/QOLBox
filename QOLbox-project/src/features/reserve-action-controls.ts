@@ -4,6 +4,7 @@ import type { ReserveSelectedRoomState } from './reserve-selection-state';
 const SELECTED_RESERVE_ROW_SELECTOR = '.roomListContainer .scrollBox tr.SELECTED';
 
 interface ReserveActionControlsOptions {
+  clearReserveSelectedRoom(): void;
   getReserveJoinButton(): Element | null;
   getReserveSelectedRoomState(): ReserveSelectedRoomState;
   isElementVisible(element: Element | null): boolean;
@@ -93,6 +94,7 @@ export function createReserveActionControls(options: ReserveActionControlsOption
       row.classList.remove('SELECTED');
     }
 
+    options.clearReserveSelectedRoom();
     syncReserveJoinButtonLabel();
   }
 

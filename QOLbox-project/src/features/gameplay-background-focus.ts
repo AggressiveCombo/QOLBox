@@ -1,4 +1,5 @@
 import { focusElementWithoutScroll } from '../dom/dom-helpers';
+import { readObjectProperty } from '../utils/object-properties';
 import {
   canBlurGameplayFocusTarget,
   canPreventGameplayDefault,
@@ -6,7 +7,6 @@ import {
   forwardGameplayPointerToCanvas,
   isPrimaryGameplayMouseButton,
   readGameplayFocusBooleanProperty,
-  readGameplayFocusProperty,
 } from './gameplay-background-focus-events';
 
 interface GameplayBackgroundFocusOptions {
@@ -84,7 +84,7 @@ export function createGameplayBackgroundFocusController(options: GameplayBackgro
       return false;
     }
 
-    const target = readGameplayFocusProperty(event, 'target');
+    const target = readObjectProperty(event, 'target');
     if (!(target instanceof Element)) {
       return false;
     }
@@ -107,11 +107,6 @@ export function createGameplayBackgroundFocusController(options: GameplayBackgro
 
     captureGameplayInputFocus();
     forwardGameplayBackgroundPointer(event);
-    window.setTimeout(() => {
-      if (shouldCaptureGameplayBackgroundFocus(event)) {
-        captureGameplayInputFocus();
-      }
-    }, 0);
   }
 
   function installGameplayBackgroundFocusHooks(): void {

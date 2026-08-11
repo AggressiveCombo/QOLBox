@@ -4,13 +4,17 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "version:dev": "node scripts/set-dev-version.mjs",
-    "version:release": "node scripts/set-release-version.mjs",
+    "version:dev": "node scripts/set-version.mjs dev",
+    "version:release": "node scripts/set-version.mjs release",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run build"
+    "syntax": "node --check QOLBox.user.js",
+    "check": "npm run typecheck && npm run build && npm run syntax"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "devDependencies": {
-    "esbuild": "^0.28.1",
-    "typescript": "6.0.3"
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
   }
 }

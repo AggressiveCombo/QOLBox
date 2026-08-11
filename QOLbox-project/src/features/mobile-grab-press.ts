@@ -83,7 +83,6 @@ export function createMobileGrabPressController(options: MobileGrabPressControll
       return;
     }
 
-    stopMobileGrabEvent(event);
     activePointerId = null;
     options.setPressed(false);
   }
@@ -94,14 +93,13 @@ export function createMobileGrabPressController(options: MobileGrabPressControll
     }
 
     releaseHooksInstalled = true;
-    document.addEventListener('touchend', handleMobileGrabTouchEnd, true);
-    document.addEventListener('touchcancel', handleMobileGrabTouchEnd, true);
-    document.addEventListener('pointerup', handleMobileGrabPointerEnd, true);
-    document.addEventListener('pointercancel', handleMobileGrabPointerEnd, true);
-    window.addEventListener('touchend', handleMobileGrabTouchEnd, true);
-    window.addEventListener('touchcancel', handleMobileGrabTouchEnd, true);
-    window.addEventListener('pointerup', handleMobileGrabPointerEnd, true);
-    window.addEventListener('pointercancel', handleMobileGrabPointerEnd, true);
+    if (typeof window.PointerEvent === 'function') {
+      window.addEventListener('pointerup', handleMobileGrabPointerEnd, true);
+      window.addEventListener('pointercancel', handleMobileGrabPointerEnd, true);
+    } else {
+      window.addEventListener('touchend', handleMobileGrabTouchEnd, true);
+      window.addEventListener('touchcancel', handleMobileGrabTouchEnd, true);
+    }
     window.addEventListener('blur', resetMobileGrabPress, true);
   }
 

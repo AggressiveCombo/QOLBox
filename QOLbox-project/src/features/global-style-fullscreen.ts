@@ -13,6 +13,12 @@ function prefixSelectorList(prefix: string, selectorList: string): string {
 
 export function getFullscreenGlobalStyleText(options: FullscreenGlobalStyleOptions): string {
   return `
+      #backgroundImage {
+        background-position: center center !important;
+        background-repeat: no-repeat !important;
+        background-size: cover !important;
+      }
+
       html.qolbox-feature-fullscreen,
       html.qolbox-feature-fullscreen body {
         width: 100vw !important;
@@ -30,8 +36,7 @@ export function getFullscreenGlobalStyleText(options: FullscreenGlobalStyleOptio
         border: 0 !important;
       }
 
-      html.qolbox-feature-fullscreen #backgroundImage,
-      html.qolbox-feature-fullscreen .mainMenuFancy {
+      html.qolbox-feature-fullscreen #backgroundImage {
         position: fixed !important;
         left: 0 !important;
         top: 0 !important;
@@ -55,6 +60,11 @@ export function getFullscreenGlobalStyleText(options: FullscreenGlobalStyleOptio
       html.qolbox-feature-fullscreen #editorContainer {
         overflow: visible !important;
         transform-origin: top left !important;
+      }
+
+      html.qolbox-feature-fullscreen .physicsCountWindow {
+        bottom: 17px !important;
+        z-index: 1 !important;
       }
 
       ${prefixSelectorList('html.qolbox-feature-fullscreen', options.fullscreenRenderCanvasSelector)} {

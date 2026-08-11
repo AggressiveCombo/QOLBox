@@ -34,7 +34,12 @@ function getMobileAbilityGapCss(buttons: readonly Element[], scaleY: number): nu
 
   let gap = Infinity;
   for (let index = 1; index < rects.length; index += 1) {
-    const currentGap = rects[index].top - rects[index - 1].bottom;
+    const current = rects[index];
+    const previous = rects[index - 1];
+    if (!current || !previous) {
+      continue;
+    }
+    const currentGap = current.top - previous.bottom;
     if (currentGap > 0) {
       gap = Math.min(gap, currentGap);
     }

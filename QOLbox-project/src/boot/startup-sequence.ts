@@ -6,6 +6,7 @@ interface StartupSequenceOptions {
   ensureGlobalStyle(): void;
   installFullscreenHooks(): void;
   installPopupKeyboardHooks(): void;
+  installLobbyInformationHooks(): void;
   installQolboxMenuHooks(): void;
   installReserveSocketCaptureHook(): void;
   installYouTubeReadyCallbackHook(): void;
@@ -18,7 +19,6 @@ interface StartupSequenceOptions {
 export function runQolboxStartupSequence(options: StartupSequenceOptions): void {
   const scheduleInitialSettle = () => {
     options.scheduleUiWork({
-      force: true,
       features: true,
       passes: FULLSCREEN_SETTLE_PASSES,
     });
@@ -28,6 +28,7 @@ export function runQolboxStartupSequence(options: StartupSequenceOptions): void 
   options.ensureGlobalStyle();
   options.installQolboxMenuHooks();
   options.installPopupKeyboardHooks();
+  options.installLobbyInformationHooks();
 
   if (options.isReserveEnabled()) {
     options.installReserveSocketCaptureHook();
@@ -43,7 +44,5 @@ export function runQolboxStartupSequence(options: StartupSequenceOptions): void 
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', scheduleInitialSettle, { once: true });
-  } else {
-    scheduleInitialSettle();
   }
 }

@@ -56,7 +56,7 @@ export function createMobileQolboxMenuEntryController({
       container.appendChild(item);
     }
 
-    item.textContent = 'QOLBox';
+    if (item.textContent?.trim() !== 'QOLBox') item.textContent = 'QOLBox';
     return true;
   }
 

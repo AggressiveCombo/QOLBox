@@ -129,7 +129,11 @@ export function createLobbyCommandDispatcher(dependencies: CommandDispatcherDepe
       return false;
     }
 
-    const commandName = `/${match[1].toLowerCase()}`;
+    const matchedCommandName = match[1];
+    if (!matchedCommandName) {
+      return false;
+    }
+    const commandName = `/${matchedCommandName.toLowerCase()}`;
     const argument = (match[2] || '').trim();
 
     if (commandName === '/r' && !areAdvancedCommandAliasesEnabled()) {

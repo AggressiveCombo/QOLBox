@@ -1,11 +1,7 @@
 import {
-  ADVANCED_ALERT_DELAY_MS,
-  ADVANCED_ALERT_FLASH_INTERVAL_MS,
   ADVANCED_BLACKLIST_ENFORCEMENT,
   ADVANCED_COMMAND_ALIASES,
-  ADVANCED_RESERVE_RETRY_INTERVAL_MS,
   ADVANCED_SETTING_DEFINITIONS,
-  ADVANCED_TYPING_DURATION_MS,
   getDefaultAdvancedSettings,
   sanitizeAdvancedSetting,
   type AdvancedSettingDefinition,
@@ -13,39 +9,55 @@ import {
   type AdvancedSettings,
 } from '../settings/advanced-settings';
 import {
-  FEATURE_AUDIO,
-  FEATURE_CHAT,
-  FEATURE_EDITOR_MAP_TRANSFER,
-  FEATURE_FULLSCREEN,
-  FEATURE_GAME_START_ALERT,
-  FEATURE_LOBBY_COMMANDS,
-  FEATURE_MOBILE_GRAB,
-  FEATURE_RESERVE,
   getDefaultFeatureSettings,
   isKnownFeature,
   type FeatureKey,
   type FeatureSettings,
 } from '../settings/feature-settings';
 import {
+  THEME_GAME_ACCENT,
+  THEME_MODE,
+  THEME_QOLBOX_ACCENT,
+  getDefaultThemeSettings,
+  normalizeThemeColor,
+  type ThemeColorKey,
+  type ThemeSettings,
+} from '../settings/theme-settings';
+import {
   isArrowLeftKey,
   isArrowRightKey,
   isEnterKey,
   isEscapeKey,
+  isTabKey,
 } from './chat-keyboard-events';
-import { isQolboxMenuShortcut } from './qolbox-menu-keyboard';
+import { focusElementWithoutScroll } from '../dom/dom-helpers';
 import type {
   QolboxSettingsDraft,
+  QolboxReferenceTopic,
   QolboxSettingsPage,
   QolboxSettingsValidationErrors,
 } from './qolbox-menu-markup';
+
+function isQolboxMenuShortcut(event: KeyboardEvent, menuKey: string): boolean {
+  return (
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    (event.key === menuKey || event.code === menuKey)
+  );
+}
 import { ensureQolboxMenuOverlay, renderQolboxMenuPanel } from './qolbox-menu-view';
 
-export type QolboxMenuMode = 'closed' | 'onboarding' | 'settings' | 'update';
+export type QolboxMenuMode = 'closed' | 'onboarding' | 'patch-notes' | 'reference' | 'settings' | 'update';
 
 interface QolboxMenuControllerOptions {
   createSettingsDraft(): QolboxSettingsDraft;
   getOnboardingStepMarkup(stepIndex: number): string;
   getOnboardingStepCount(): number;
+  getPatchNotesMarkup(pageIndex: number): string;
+  getPatchNotesPageCount(): number;
+  getReferenceMarkup(topic: QolboxReferenceTopic): string;
   getSettingsMenuMarkup(
     draft: QolboxSettingsDraft,
     page: QolboxSettingsPage,
@@ -60,34 +72,23 @@ interface QolboxMenuControllerOptions {
   onBeforeOpen(): void;
   onChooseExpressSetup(): void;
   onCompleteOnboarding(): void;
-  onCommitSettingsDraft(features: FeatureSettings, advanced: AdvancedSettings): void;
+  onCommitSettingsDraft(features: FeatureSettings, advanced: AdvancedSettings, theme: ThemeSettings): void;
+  onCustomAction(action: string, element: HTMLElement): Promise<boolean>;
+  onCustomInput(element: HTMLInputElement | HTMLSelectElement): Promise<boolean>;
   onMenuModeChanged(): void;
+  onOpenPatchNotes(): void;
   onSetFeatureEnabled(featureKey: string | undefined, enabled: boolean): void;
 }
-
-const FEATURE_PAGE_KEYS: readonly FeatureKey[] = [
-  FEATURE_FULLSCREEN,
-  FEATURE_RESERVE,
-  FEATURE_CHAT,
-  FEATURE_GAME_START_ALERT,
-  FEATURE_EDITOR_MAP_TRANSFER,
-  FEATURE_MOBILE_GRAB,
-];
-
-const ADVANCED_TIMING_KEYS: readonly AdvancedSettingKey[] = [
-  ADVANCED_RESERVE_RETRY_INTERVAL_MS,
-  ADVANCED_ALERT_DELAY_MS,
-  ADVANCED_ALERT_FLASH_INTERVAL_MS,
-  ADVANCED_TYPING_DURATION_MS,
-];
 
 export function createQolboxMenuController(options: QolboxMenuControllerOptions) {
   let onboardingComplete = options.initialOnboardingComplete;
   let onboardingStepIndex = 0;
   let settingsDraft: QolboxSettingsDraft | null = null;
   let settingsErrors: QolboxSettingsValidationErrors = {};
+  let focusBeforeOpen: HTMLElement | null = null;
   let settingsPage: QolboxSettingsPage = 'features';
-  let updateNoticePageIndex = 0;
+  let releaseNotesPageIndex = 0;
+  let referenceTopic: QolboxReferenceTopic = 'commands';
   let mode: QolboxMenuMode = 'closed';
   let hooksInstalled = false;
 
@@ -108,10 +109,11 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
       settingsDraft = options.createSettingsDraft();
     }
 
-    if (mode === 'update') {
-      updateNoticePageIndex = Math.max(
+    if (mode === 'update' || mode === 'patch-notes') {
+      const pageCount = mode === 'update' ? options.getUpdateNoticePageCount() : options.getPatchNotesPageCount();
+      releaseNotesPageIndex = Math.max(
         0,
-        Math.min(updateNoticePageIndex, Math.max(1, options.getUpdateNoticePageCount()) - 1)
+        Math.min(releaseNotesPageIndex, Math.max(1, pageCount) - 1)
       );
     }
 
@@ -119,8 +121,12 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
       mode === 'settings'
         ? options.getSettingsMenuMarkup(settingsDraft as QolboxSettingsDraft, settingsPage, settingsErrors)
         : mode === 'update'
-          ? options.getUpdateNoticeMarkup(updateNoticePageIndex)
-          : options.getOnboardingStepMarkup(onboardingStepIndex);
+          ? options.getUpdateNoticeMarkup(releaseNotesPageIndex)
+          : mode === 'patch-notes'
+            ? options.getPatchNotesMarkup(releaseNotesPageIndex)
+            : mode === 'reference'
+              ? options.getReferenceMarkup(referenceTopic)
+              : options.getOnboardingStepMarkup(onboardingStepIndex);
     renderQolboxMenuPanel(options.menuId, markup);
   }
 
@@ -139,6 +145,10 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
     if (menu) {
       menu.remove();
     }
+    if (focusBeforeOpen?.isConnected) {
+      focusElementWithoutScroll(focusBeforeOpen);
+    }
+    focusBeforeOpen = null;
   }
 
   function completeOnboarding(): void {
@@ -148,6 +158,9 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
   }
 
   function openQolboxMenu(nextMode: Exclude<QolboxMenuMode, 'closed'> = 'settings'): void {
+    if (mode === 'closed') {
+      focusBeforeOpen = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
     options.onBeforeOpen();
     if (!ensureQolboxMenu()) {
       return;
@@ -162,8 +175,8 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
       settingsDraft = options.createSettingsDraft();
       settingsErrors = {};
       settingsPage = 'features';
-    } else if (nextMode === 'update') {
-      updateNoticePageIndex = 0;
+    } else if (nextMode === 'update' || nextMode === 'patch-notes') {
+      releaseNotesPageIndex = 0;
     }
 
     options.onMenuModeChanged();
@@ -214,7 +227,10 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
       : 'Choose Enabled or Off.';
   }
 
-  function getErrorPage(key: AdvancedSettingKey): QolboxSettingsPage {
+  function getErrorPage(key: AdvancedSettingKey | ThemeColorKey): QolboxSettingsPage {
+    if (key === THEME_QOLBOX_ACCENT || key === THEME_GAME_ACCENT) {
+      return 'appearance';
+    }
     if (key === ADVANCED_COMMAND_ALIASES || key === ADVANCED_BLACKLIST_ENFORCEMENT) {
       return 'commands';
     }
@@ -222,7 +238,12 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
     return 'advanced';
   }
 
-  function validateSettingsDraft(): AdvancedSettings | null {
+  function getDraftThemeValue(key: ThemeColorKey): unknown {
+    const input = document.querySelector<HTMLInputElement>(`#${options.menuId} [data-qolbox-theme-input="${key}"]`);
+    return input?.value ?? settingsDraft?.theme[key];
+  }
+
+  function validateSettingsDraft(): { advanced: AdvancedSettings; theme: ThemeSettings } | null {
     if (!settingsDraft) {
       return null;
     }
@@ -241,71 +262,47 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
       }
     }
 
+    const theme = { ...settingsDraft.theme };
+    for (const key of [THEME_QOLBOX_ACCENT, THEME_GAME_ACCENT] as const) {
+      const value = getDraftThemeValue(key);
+      const normalized = normalizeThemeColor(value);
+      if (!normalized) {
+        errors[key] = 'Use a six-digit hex color, such as #FF6200.';
+      } else {
+        theme[key] = normalized;
+      }
+    }
+    if (theme.linked) theme.gameAccent = theme.qolboxAccent;
+
     settingsErrors = errors;
-    const firstError = ADVANCED_SETTING_DEFINITIONS.find(definition => errors[definition.key]);
+    const firstError = ([THEME_QOLBOX_ACCENT, THEME_GAME_ACCENT] as const)
+      .find(key => errors[key]) || ADVANCED_SETTING_DEFINITIONS.find(definition => errors[definition.key])?.key;
     if (firstError) {
-      settingsPage = getErrorPage(firstError.key);
+      settingsPage = getErrorPage(firstError);
       return null;
     }
 
-    return sanitized;
+    return { advanced: sanitized, theme };
   }
 
-  function resetFeatureDraft(keys: readonly FeatureKey[]): void {
-    if (!settingsDraft) {
-      return;
-    }
-
-    const defaults = getDefaultFeatureSettings();
-    for (const key of keys) {
-      settingsDraft.features[key] = defaults[key];
-    }
-  }
-
-  function resetAdvancedDraft(keys: readonly AdvancedSettingKey[]): void {
-    if (!settingsDraft) {
-      return;
-    }
-
-    const defaults = getDefaultAdvancedSettings();
-    for (const key of keys) {
-      settingsDraft.advanced[key] = defaults[key];
-      delete settingsErrors[key];
-    }
-  }
-
-  function resetSettingsPageDraft(): void {
-    switch (settingsPage) {
-      case 'commands':
-        resetFeatureDraft([FEATURE_LOBBY_COMMANDS]);
-        resetAdvancedDraft([ADVANCED_COMMAND_ALIASES, ADVANCED_BLACKLIST_ENFORCEMENT]);
-        break;
-      case 'audio':
-        resetFeatureDraft([FEATURE_AUDIO]);
-        break;
-      case 'advanced':
-        resetAdvancedDraft(ADVANCED_TIMING_KEYS);
-        break;
-      case 'features':
-        resetFeatureDraft(FEATURE_PAGE_KEYS);
-        break;
-      case 'about':
-      default:
-        break;
-    }
-
+  function restoreQolboxDefaultsDraft(): void {
+    if (!settingsDraft) return;
+    settingsDraft.features = getDefaultFeatureSettings();
+    settingsDraft.advanced = getDefaultAdvancedSettings();
+    settingsDraft.theme = getDefaultThemeSettings();
+    settingsErrors = {};
     renderQolboxMenu();
   }
 
   function saveSettingsDraft(): void {
-    const sanitized = validateSettingsDraft();
-    if (!settingsDraft || !sanitized) {
+    const validated = validateSettingsDraft();
+    if (!settingsDraft || !validated) {
       renderQolboxMenu();
       return;
     }
 
     const featureDraft = { ...settingsDraft.features };
-    options.onCommitSettingsDraft(featureDraft, sanitized);
+    options.onCommitSettingsDraft(featureDraft, validated.advanced, validated.theme);
     closeQolboxMenu();
   }
 
@@ -324,6 +321,13 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
     event.preventDefault();
     event.stopImmediatePropagation();
 
+    if (action?.startsWith('sound-bank-')) {
+      void options.onCustomAction(action, actionElement).then(handled => {
+        if (handled && mode === 'settings') renderQolboxMenu();
+      });
+      return;
+    }
+
     switch (action) {
       case 'set-feature':
         options.onSetFeatureEnabled(actionElement.dataset.feature, actionElement.dataset.enabled === 'true');
@@ -338,14 +342,54 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
         updateDraftAdvancedValue(actionElement.dataset.advanced, actionElement.dataset.value);
         renderQolboxMenu();
         break;
+      case 'draft-theme-mode':
+        if (settingsDraft && ['system', 'dark', 'light'].includes(actionElement.dataset.mode || '')) {
+          settingsDraft.theme[THEME_MODE] = actionElement.dataset.mode as ThemeSettings[typeof THEME_MODE];
+          renderQolboxMenu();
+        }
+        break;
       case 'settings-page':
         if (isSettingsPage(actionElement.dataset.page)) {
           settingsPage = actionElement.dataset.page;
           renderQolboxMenu();
         }
         break;
-      case 'reset-page':
-        resetSettingsPageDraft();
+      case 'link-theme-from-qolbox':
+      case 'link-theme-from-game':
+        if (settingsDraft) {
+          const source = action === 'link-theme-from-game' ? THEME_GAME_ACCENT : THEME_QOLBOX_ACCENT;
+          const target = source === THEME_GAME_ACCENT ? THEME_QOLBOX_ACCENT : THEME_GAME_ACCENT;
+          settingsDraft.theme[target] = settingsDraft.theme[source];
+          settingsDraft.theme.linked = true;
+          renderQolboxMenu();
+        }
+        break;
+      case 'unlink-theme':
+        if (settingsDraft) {
+          settingsDraft.theme.linked = false;
+          renderQolboxMenu();
+        }
+        break;
+      case 'restore-qolbox-defaults':
+        restoreQolboxDefaultsDraft();
+        break;
+      case 'view-patch-notes':
+        options.onOpenPatchNotes();
+        openQolboxMenu('patch-notes');
+        break;
+      case 'view-reference':
+        openQolboxMenu('reference');
+        break;
+      case 'reference-topic':
+        if (isQolboxReferenceTopic(actionElement.dataset.topic)) {
+          referenceTopic = actionElement.dataset.topic;
+          renderQolboxMenu();
+        }
+        break;
+      case 'back-to-settings':
+        mode = 'settings';
+        options.onMenuModeChanged();
+        renderQolboxMenu();
         break;
       case 'save-settings':
         saveSettingsDraft();
@@ -379,13 +423,13 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
         closeQolboxMenu();
         break;
       case 'update-newer':
-        updateNoticePageIndex = Math.max(0, updateNoticePageIndex - 1);
+        releaseNotesPageIndex = Math.max(0, releaseNotesPageIndex - 1);
         renderQolboxMenu();
         break;
       case 'update-older':
-        updateNoticePageIndex = Math.min(
-          Math.max(1, options.getUpdateNoticePageCount()) - 1,
-          updateNoticePageIndex + 1
+        releaseNotesPageIndex = Math.min(
+          Math.max(1, mode === 'update' ? options.getUpdateNoticePageCount() : options.getPatchNotesPageCount()) - 1,
+          releaseNotesPageIndex + 1
         );
         renderQolboxMenu();
         break;
@@ -411,9 +455,14 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
       value === 'features' ||
       value === 'commands' ||
       value === 'audio' ||
+      value === 'appearance' ||
       value === 'advanced' ||
       value === 'about'
     );
+  }
+
+  function isQolboxReferenceTopic(value: unknown): value is QolboxReferenceTopic {
+    return value === 'commands' || value === 'controls' || value === 'sound-banks';
   }
 
   function handleQolboxMenuInput(event: Event): void {
@@ -421,23 +470,107 @@ export function createQolboxMenuController(options: QolboxMenuControllerOptions)
       return;
     }
 
-    const key = event.target.dataset.qolboxAdvancedInput;
-    if (!key) {
+    const themeKey = event.target.dataset.qolboxThemeInput || event.target.dataset.qolboxThemePicker;
+    if (themeKey === THEME_QOLBOX_ACCENT || themeKey === THEME_GAME_ACCENT) {
+      const normalized = normalizeThemeColor(event.target.value);
+      const value = normalized || event.target.value;
+      settingsDraft.theme[themeKey] = value;
+      if (settingsDraft.theme.linked) {
+        const otherKey = themeKey === THEME_QOLBOX_ACCENT ? THEME_GAME_ACCENT : THEME_QOLBOX_ACCENT;
+        settingsDraft.theme[otherKey] = value;
+      }
+      const affectedKeys: readonly ThemeColorKey[] = settingsDraft.theme.linked
+        ? [THEME_QOLBOX_ACCENT, THEME_GAME_ACCENT] as const
+        : [themeKey];
+      for (const key of affectedKeys) {
+        const text = document.querySelector<HTMLInputElement>(`#${options.menuId} [data-qolbox-theme-input="${key}"]`);
+        const picker = document.querySelector<HTMLInputElement>(`#${options.menuId} [data-qolbox-theme-picker="${key}"]`);
+        if (text) text.value = value;
+        if (picker && picker !== event.target && normalized) picker.value = normalized;
+        if (settingsErrors[key]) delete settingsErrors[key];
+      }
       return;
     }
 
-    updateDraftAdvancedValue(key, event.target.value);
+    if (event.target.matches('[data-qolbox-sound-bank], [data-qolbox-sound-effect], [data-qolbox-sound-file], [data-qolbox-sound-manifest]')) {
+      if (event.type !== 'change') return;
+      void options.onCustomInput(event.target).then(handled => {
+        if (handled && mode === 'settings') renderQolboxMenu();
+      });
+      return;
+    }
+
+    const advancedKey = event.target.dataset.qolboxAdvancedInput;
+    if (advancedKey) updateDraftAdvancedValue(advancedKey, event.target.value);
   }
 
   function handleQolboxMenuKey(event: KeyboardEvent): void {
     if (mode !== 'closed' && isEscapeKey(event)) {
       event.preventDefault();
       event.stopImmediatePropagation();
+      if (mode === 'onboarding') {
+        completeOnboarding();
+        return;
+      }
+
       closeQolboxMenu();
       return;
     }
 
-    if (mode === 'update' && (isArrowLeftKey(event) || isArrowRightKey(event))) {
+    if (mode !== 'closed' && isTabKey(event)) {
+      const menu = document.getElementById(options.menuId);
+      const controls = menu
+        ? Array.from(menu.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          ))
+        : [];
+      if (controls.length) {
+        const activeElement = document.activeElement;
+        const currentIndex = controls.indexOf(activeElement as HTMLElement);
+        const nextIndex = event.shiftKey
+          ? currentIndex <= 0 ? controls.length - 1 : currentIndex - 1
+          : currentIndex < 0 || currentIndex >= controls.length - 1 ? 0 : currentIndex + 1;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        focusElementWithoutScroll(controls[nextIndex]);
+      }
+      return;
+    }
+
+    if (mode === 'settings' && (isArrowLeftKey(event) || isArrowRightKey(event))) {
+      const activeElement = document.activeElement;
+      const tabs = Array.from(document.querySelectorAll<HTMLElement>(`#${options.menuId} [role="tab"]`));
+      const currentIndex = activeElement instanceof HTMLElement ? tabs.indexOf(activeElement) : -1;
+      if (currentIndex >= 0 && tabs.length) {
+        const direction = isArrowLeftKey(event) ? -1 : 1;
+        const nextTab = tabs[(currentIndex + direction + tabs.length) % tabs.length];
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        focusElementWithoutScroll(nextTab);
+        nextTab?.click();
+      }
+      return;
+    }
+
+    if (mode === 'reference' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      const activeElement = document.activeElement;
+      const topics = Array.from(document.querySelectorAll<HTMLElement>(`#${options.menuId} .qolboxReferenceTopic`));
+      const index = topics.indexOf(activeElement as HTMLElement);
+      if (index >= 0 && topics.length) {
+        const nextIndex = (index + (event.key === 'ArrowUp' ? topics.length - 1 : 1)) % topics.length;
+        const nextTopic = topics[nextIndex]?.dataset.topic;
+        if (isQolboxReferenceTopic(nextTopic)) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          referenceTopic = nextTopic;
+          renderQolboxMenu();
+          focusElementWithoutScroll(document.querySelector<HTMLElement>(`#${options.menuId} .qolboxReferenceTopic.active`));
+        }
+      }
+      return;
+    }
+
+    if ((mode === 'update' || mode === 'patch-notes') && (isArrowLeftKey(event) || isArrowRightKey(event))) {
       const action = isArrowLeftKey(event) ? 'update-older' : 'update-newer';
       const actionElement = document.querySelector<HTMLElement>(
         `#${options.menuId} [data-qolbox-action="${action}"]:not([disabled])`

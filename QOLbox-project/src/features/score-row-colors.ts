@@ -1,5 +1,6 @@
 import { getPlayerColorCandidates, getPlayerDisplayName } from '../hitbox/player-appearance-adapter';
 import {
+  blendRgbColors,
   colorsMatch,
   getContrastRatio,
   getElementBackgroundColor,
@@ -114,7 +115,10 @@ export function createScoreRowColorController(options: ScoreRowColorOptions) {
       }
 
       const currentColor = parseCssRgbColor(window.getComputedStyle(element).color);
-      if (currentColor && getContrastRatio(currentColor, background) >= MIN_SCORE_TEXT_CONTRAST) {
+      const effectiveCurrentColor = currentColor && currentColor.alpha < 1
+        ? blendRgbColors(currentColor, background)
+        : currentColor;
+      if (effectiveCurrentColor && getContrastRatio(effectiveCurrentColor, background) >= MIN_SCORE_TEXT_CONTRAST) {
         continue;
       }
 

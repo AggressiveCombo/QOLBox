@@ -72,7 +72,7 @@ export function getElementBackgroundColor(element: Element): string {
     : '';
 }
 
-function blendRgbColors(foreground: RgbColor, background: RgbColor): RgbColor {
+export function blendRgbColors(foreground: RgbColor, background: RgbColor): RgbColor {
   const alpha = foreground.alpha;
   return {
     red: Math.round(foreground.red * alpha + background.red * (1 - alpha)),
@@ -85,12 +85,13 @@ function blendRgbColors(foreground: RgbColor, background: RgbColor): RgbColor {
 function getRelativeLuminance(color: RgbColor): number {
   const channels = [color.red, color.green, color.blue].map(value => {
     const normalized = value / 255;
-    return normalized <= 0.03928
+    return normalized <= 0.04045
       ? normalized / 12.92
       : ((normalized + 0.055) / 1.055) ** 2.4;
   });
+  const [red = 0, green = 0, blue = 0] = channels;
 
-  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  return red * 0.2126 + green * 0.7152 + blue * 0.0722;
 }
 
 export function getContrastRatio(left: RgbColor, right: RgbColor): number {

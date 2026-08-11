@@ -16,13 +16,12 @@ export function createGameStartFocusHookInstaller({
   let hooksInstalled = false;
 
   function installGameStartIndicatorHooks(): void {
+    initializeFocusState();
     if (hooksInstalled) {
       return;
     }
 
     hooksInstalled = true;
-    initializeFocusState();
-
     document.addEventListener('pointerdown', handleInteractionFocus, true);
     document.addEventListener('mousedown', handleInteractionFocus, true);
     document.addEventListener('click', handleInteractionFocus, true);

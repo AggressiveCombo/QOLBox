@@ -3,17 +3,11 @@ import {
   applyFullscreenContainerLayout,
   type FullscreenRelativeBounds,
 } from './fullscreen-container-layout';
-import type { EditorFrame } from './fullscreen-editor-frame-layout';
-import { createFullscreenEditorFrameLayout } from './fullscreen-editor-frame-layout';
-import { createFullscreenRenderFrameLayout } from './fullscreen-render-frame-layout';
 
 interface FullscreenFrameLayoutOptions {
   ensureGlobalStyle(): void;
   getFullscreenDimensions(viewport?: FullscreenViewportSize, mode?: string): FullscreenDimensions;
-  getNativeUiZoom(dimensions: FullscreenDimensions): number;
   getRelativeContainerBounds(dimensions: FullscreenDimensions): FullscreenRelativeBounds;
-  isEditorCanvas(element: unknown): boolean;
-  isEditorLayer(element: unknown): boolean;
   layoutRelativeHud(relativeBounds: unknown, dimensions: FullscreenDimensions): void;
   renderCanvasSelector: string;
   renderLayerSelector: string;
@@ -21,80 +15,53 @@ interface FullscreenFrameLayoutOptions {
 }
 
 export function createFullscreenFrameLayout(options: FullscreenFrameLayoutOptions) {
-  const editorFrameLayout = createFullscreenEditorFrameLayout({
-    setImportantStyle: options.setImportantStyle,
-  });
-
-  function getScaledEditorFrame(
-    editorLayer: unknown,
-    dimensions: FullscreenDimensions = options.getFullscreenDimensions(undefined, 'editor')
-  ): EditorFrame {
-    return editorFrameLayout.getScaledEditorFrame(editorLayer, dimensions);
-  }
-
-  function fitEditorCanvasToNative(canvas: unknown, frame: EditorFrame | null): void {
-    editorFrameLayout.fitEditorCanvasToNative(canvas, frame);
-  }
-
-  function fitEditorLayerToFrame(
-    layer: unknown,
-    dimensions: FullscreenDimensions = options.getFullscreenDimensions(undefined, 'editor')
-  ): EditorFrame | null {
-    return editorFrameLayout.fitEditorLayerToFrame(layer, dimensions);
-  }
-
-  const renderFrameLayout = createFullscreenRenderFrameLayout({
-    fitEditorCanvasToNative,
-    fitEditorLayerToFrame,
-    getScaledEditorFrame,
-    isEditorCanvas: options.isEditorCanvas,
-    isEditorLayer: options.isEditorLayer,
-    renderCanvasSelector: options.renderCanvasSelector,
-    renderLayerSelector: options.renderLayerSelector,
-    setImportantStyle: options.setImportantStyle,
-  });
-
   function fitElementToFrame(
     element: unknown,
-    dimensions: FullscreenDimensions = options.getFullscreenDimensions(),
-    left = 0,
-    top = 0
+    dimensions: FullscreenDimensions = options.getFullscreenDimensions()
   ): void {
-    renderFrameLayout.fitElementToFrame(element, dimensions, left, top);
+    if (!(element instanceof Element)) return;
+
+    options.setImportantStyle(element, 'position', 'absolute');
+    options.setImportantStyle(element, 'left', '0');
+    options.setImportantStyle(element, 'top', '0');
+    options.setImportantStyle(element, 'right', 'auto');
+    options.setImportantStyle(element, 'bottom', 'auto');
+    options.setImportantStyle(element, 'margin', '0');
+    options.setImportantStyle(element, 'width', `${dimensions.baseWidth}px`);
+    options.setImportantStyle(element, 'height', `${dimensions.baseHeight}px`);
+    options.setImportantStyle(element, 'max-width', 'none');
+    options.setImportantStyle(element, 'max-height', 'none');
+    options.setImportantStyle(element, 'transform', 'none');
+  }
+
+  function fitRenderLayersToFrame(dimensions: FullscreenDimensions): void {
+    for (const layer of document.querySelectorAll(options.renderLayerSelector)) {
+      fitElementToFrame(layer, dimensions);
+      options.setImportantStyle(layer, 'zoom', '1');
+    }
+  }
+
+  function fitRenderCanvasesToFrame(dimensions: FullscreenDimensions): void {
+    for (const canvas of document.querySelectorAll(options.renderCanvasSelector)) {
+      fitElementToFrame(canvas, dimensions);
+    }
   }
 
   function enforceFullscreenLayout(dimensions: FullscreenDimensions = options.getFullscreenDimensions()): boolean {
     options.ensureGlobalStyle();
-    const menuDimensions =
-      dimensions.mode === 'menu' ? dimensions : options.getFullscreenDimensions(undefined, 'menu');
-    const playDimensions =
-      dimensions.mode === 'gameplay' || dimensions.mode === 'editor'
-        ? dimensions
-        : options.getFullscreenDimensions(undefined, 'gameplay');
-    const activeDimensions =
-      dimensions.mode === 'gameplay' || dimensions.mode === 'editor' ? playDimensions : menuDimensions;
-    const relativeBounds = options.getRelativeContainerBounds(activeDimensions);
+    const relativeBounds = options.getRelativeContainerBounds(dimensions);
 
-    applyFullscreenContainerLayout(options, dimensions, activeDimensions, relativeBounds);
+    applyFullscreenContainerLayout(options, dimensions);
 
-    renderFrameLayout.fitRenderLayersToFrame(activeDimensions);
-    renderFrameLayout.fitRenderCanvasesToFrame(activeDimensions);
+    fitRenderLayersToFrame(dimensions);
+    fitRenderCanvasesToFrame(dimensions);
 
-    const uiZoom = String(options.getNativeUiZoom(activeDimensions));
-    for (const overlay of document.querySelectorAll('.inGameCSS')) {
-      options.setImportantStyle(overlay, 'zoom', uiZoom);
-      options.setImportantStyle(overlay, 'transform-origin', 'top left');
-    }
-
-    options.layoutRelativeHud(relativeBounds, activeDimensions);
+    options.layoutRelativeHud(relativeBounds, dimensions);
     return true;
   }
 
   return {
     enforceFullscreenLayout,
-    fitEditorCanvasToNative,
-    fitEditorLayerToFrame,
     fitElementToFrame,
-    getScaledEditorFrame,
   };
 }

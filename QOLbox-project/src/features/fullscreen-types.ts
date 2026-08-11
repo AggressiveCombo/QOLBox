@@ -23,10 +23,6 @@ export interface FullscreenDimensions {
   left: number;
   mode: string;
   scale: number;
-  shellHeight: number;
-  shellLeft: number;
-  shellTop: number;
-  shellWidth: number;
   top: number;
   viewportHeight: number;
   viewportWidth: number;
@@ -38,8 +34,6 @@ export interface FullscreenLayoutProbe {
   appWidth: number;
   backingHeight: number;
   backingWidth: number;
-  nativeHeight: number;
-  nativeWidth: number;
   relativeHeight: number;
   relativeWidth: number;
   renderHeight: number;
@@ -47,4 +41,7 @@ export interface FullscreenLayoutProbe {
   renderTop: number;
   renderWidth: number;
   rendererCount: number;
+  rendererLogicalHeight: number;
+  rendererLogicalWidth: number;
+  rendererResolution: number;
 }

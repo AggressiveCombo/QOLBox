@@ -1,9 +1,8 @@
 import { focusElementWithoutScroll, isElementVisible } from '../dom/dom-helpers';
 import type { ScheduledUiWorkRequest } from '../types/scheduled-work';
-import { readObjectProperty } from '../utils/object-properties';
+import { isCallable, readObjectProperty } from '../utils/object-properties';
 import { isTabKey } from './chat-input-controls';
 
-type NativeCallable = (...args: unknown[]) => unknown;
 type StyleDatasetElement = Element & { dataset: DOMStringMap; style: CSSStyleDeclaration };
 type StyleElement = Element & { style: CSSStyleDeclaration };
 
@@ -19,23 +18,15 @@ interface JukeboxKeyboardFocusOptions {
   scheduleUiWork(options: ScheduledUiWorkRequest): void;
 }
 
-function readProperty(source: unknown, property: PropertyKey): unknown {
-  return readObjectProperty(source, property);
-}
-
-function isNativeCallable(value: unknown): value is NativeCallable {
-  return typeof value === 'function';
-}
-
 function isStyleElement(value: unknown): value is StyleElement {
-  return value instanceof Element && typeof readProperty(value, 'style') === 'object';
+  return value instanceof Element && typeof readObjectProperty(value, 'style') === 'object';
 }
 
 function isStyleDatasetElement(value: unknown): value is StyleDatasetElement {
   return (
     value instanceof Element &&
-    typeof readProperty(value, 'dataset') === 'object' &&
-    typeof readProperty(value, 'style') === 'object'
+    typeof readObjectProperty(value, 'dataset') === 'object' &&
+    typeof readObjectProperty(value, 'style') === 'object'
   );
 }
 
@@ -56,14 +47,14 @@ export function createJukeboxKeyboardFocusController(options: JukeboxKeyboardFoc
     options.resetBrowserScroll();
     setJukeboxBottom(jukebox, '0px');
 
-    const onMouseEnter = readProperty(jukebox, 'onmouseenter');
-    if (isNativeCallable(onMouseEnter)) {
+    const onMouseEnter = readObjectProperty(jukebox, 'onmouseenter');
+    if (isCallable(onMouseEnter)) {
       Reflect.apply(onMouseEnter, jukebox, []);
     } else {
       setJukeboxBottom(jukebox, '0px');
     }
 
-    options.scheduleUiWork({ force: true, passes: options.resizeSettlePasses });
+    options.scheduleUiWork({ passes: options.resizeSettlePasses });
   }
 
   function closeJukeboxFromKeyboardFocus(jukebox: Element | null, nextFocusTarget: unknown): void {
@@ -76,8 +67,8 @@ export function createJukeboxKeyboardFocusController(options: JukeboxKeyboardFoc
       return;
     }
 
-    const onMouseLeave = readProperty(jukebox, 'onmouseleave');
-    if (isNativeCallable(onMouseLeave)) {
+    const onMouseLeave = readObjectProperty(jukebox, 'onmouseleave');
+    if (isCallable(onMouseLeave)) {
       Reflect.apply(onMouseLeave, jukebox, []);
     } else {
       setJukeboxBottom(jukebox, '-50px');
@@ -165,7 +156,7 @@ export function createJukeboxKeyboardFocusController(options: JukeboxKeyboardFoc
     jukebox.addEventListener('focusin', () => openJukeboxFromKeyboardFocus(jukebox), true);
     jukebox.addEventListener(
       'focusout',
-      event => closeJukeboxFromKeyboardFocus(jukebox, readProperty(event, 'relatedTarget')),
+      event => closeJukeboxFromKeyboardFocus(jukebox, readObjectProperty(event, 'relatedTarget')),
       true
     );
   }

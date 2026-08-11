@@ -1,15 +1,14 @@
 import { areGameStartSessionHooksInstalled, installGameStartSessionHooks } from '../hitbox/game-start-hooks';
 import { createGameStartDisplayController } from './game-start-display';
 import { createGameStartFocusHookInstaller } from './game-start-focus-hooks';
-import { createLocalPlayTransitionTracker } from './game-start-local-transition';
 import {
   GAME_PULLED_TITLE_PREFIX,
   GAME_START_TITLE_PREFIX,
   stripGameStartTitlePrefix,
 } from './game-start-shared';
-import { createGameStartTimerController } from './game-start-timers';
 
 type GameStartReason = 'started' | 'pulled';
+type GameStartTimer = 'endWatch' | 'flash' | 'indicator' | 'watch';
 
 interface GameStartIndicatorOptions {
   endWatchIntervalMs: number;
@@ -33,13 +32,11 @@ function getTitlePrefix(reason: GameStartReason): string {
 
 export function createGameStartIndicatorController(options: GameStartIndicatorOptions) {
   const display = createGameStartDisplayController();
-  const localPlayTransition = createLocalPlayTransitionTracker({
-    getSession: options.getSession,
-    timeoutMs: options.localTransitionTimeoutMs,
-  });
+  let localTransitionSession: unknown = null;
+  let localTransitionUntil = 0;
   let sessionHookTarget: unknown = null;
   let indicatorActive = false;
-  const timers = createGameStartTimerController();
+  const timers: Record<GameStartTimer, number> = { endWatch: 0, flash: 0, indicator: 0, watch: 0 };
   let flashOn = false;
   let originalTitle = '';
   let wasPlayingWhenUnfocused = false;
@@ -66,20 +63,18 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
     return wasInLobbyWhenUnfocused ? 'started' : 'pulled';
   }
 
-  function clearIndicatorTimer(): void {
-    timers.clearIndicatorTimer();
+  function clearTimer(timer: GameStartTimer): void {
+    if (timers[timer]) {
+      window.clearTimeout(timers[timer]);
+      timers[timer] = 0;
+    }
   }
 
-  function clearWatchTimer(): void {
-    timers.clearWatchTimer();
-  }
-
-  function clearEndWatchTimer(): void {
-    timers.clearEndWatchTimer();
-  }
-
-  function clearFlashTimer(): void {
-    timers.clearFlashTimer();
+  function setTimer(timer: GameStartTimer, callback: () => void, delayMs: number): void {
+    timers[timer] = window.setTimeout(() => {
+      timers[timer] = 0;
+      callback();
+    }, delayMs);
   }
 
   function flashIndicator(): void {
@@ -90,15 +85,15 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
     flashOn = !flashOn;
     display.setTitle(`${getTitlePrefix(indicatorReason)}${originalTitle}`);
     display.setFavicon(flashOn);
-    timers.setFlashTimer(flashIndicator, options.getFlashIntervalMs());
+    setTimer('flash', flashIndicator, options.getFlashIntervalMs());
   }
 
   function scheduleEndWatch(): void {
-    if (!indicatorActive || timers.hasEndWatchTimer()) {
+    if (!indicatorActive || timers.endWatch) {
       return;
     }
 
-    timers.setEndWatchTimer(() => {
+    setTimer('endWatch', () => {
       if (!indicatorActive) {
         return;
       }
@@ -133,15 +128,15 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
     originalTitle = stripGameStartTitlePrefix(display.getTitle());
     indicatorActive = true;
     flashOn = false;
-    clearFlashTimer();
+    clearTimer('flash');
     flashIndicator();
     scheduleEndWatch();
   }
 
   function clearIndicator(): void {
-    clearIndicatorTimer();
-    clearEndWatchTimer();
-    clearFlashTimer();
+    clearTimer('indicator');
+    clearTimer('endWatch');
+    clearTimer('flash');
 
     if (!indicatorActive) {
       return;
@@ -157,21 +152,36 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
   }
 
   function noteLocallyInitiatedPlayTransition(session: unknown = options.getSession()): void {
-    if (!options.isEnabled()) {
+    if (!options.isEnabled() || !session) {
       return;
     }
 
-    if (localPlayTransition.note(session)) {
-      clearIndicatorTimer();
-    }
+    localTransitionSession = session;
+    localTransitionUntil = Date.now() + options.localTransitionTimeoutMs;
+    clearTimer('indicator');
   }
 
   function hasPendingLocalPlayTransition(session: unknown = options.getSession()): boolean {
-    return localPlayTransition.has(session);
+    if (!localTransitionSession || Date.now() > localTransitionUntil) {
+      clearLocalPlayTransition();
+      return false;
+    }
+
+    return localTransitionSession === session;
   }
 
   function consumePendingLocalPlayTransition(session: unknown = options.getSession()): boolean {
-    return localPlayTransition.consume(session);
+    if (!hasPendingLocalPlayTransition(session)) {
+      return false;
+    }
+
+    clearLocalPlayTransition();
+    return true;
+  }
+
+  function clearLocalPlayTransition(): void {
+    localTransitionSession = null;
+    localTransitionUntil = 0;
   }
 
   function clearSessionEntryGrace(): void {
@@ -232,13 +242,13 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
   }
 
   function scheduleIndicator(reason: GameStartReason = 'pulled'): void {
-    if (!options.isEnabled() || timers.hasIndicatorTimer() || isIndicatorPageFocused()) {
+    if (!options.isEnabled() || timers.indicator || isIndicatorPageFocused()) {
       return;
     }
 
-    clearWatchTimer();
+    clearTimer('watch');
     indicatorReason = reason;
-    timers.setIndicatorTimer(() => {
+    setTimer('indicator', () => {
       if (
         !isIndicatorPageFocused() &&
         !wasPlayingWhenUnfocused &&
@@ -252,11 +262,11 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
   }
 
   function scheduleWatch(): void {
-    if (!options.isEnabled() || timers.hasWatchTimer() || isIndicatorPageFocused() || indicatorActive) {
+    if (!options.isEnabled() || timers.watch || isIndicatorPageFocused() || indicatorActive) {
       return;
     }
 
-    timers.setWatchTimer(() => {
+    setTimer('watch', () => {
       updateGameStartIndicator();
 
       if (!indicatorActive && !isIndicatorPageFocused()) {
@@ -274,14 +284,14 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
     if (startedPlaying && consumePendingLocalPlayTransition(session)) {
       wasPlayingWhenUnfocused = true;
       wasInLobbyWhenUnfocused = false;
-      clearWatchTimer();
-      clearIndicatorTimer();
+      clearTimer('watch');
+      clearTimer('indicator');
       return;
     }
 
     if (startedPlaying && wasPlayableLobby && !isIndicatorPageFocused()) {
-      clearWatchTimer();
-      clearIndicatorTimer();
+      clearTimer('watch');
+      clearTimer('indicator');
       showIndicator('started');
       return;
     }
@@ -303,7 +313,7 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
     if (session !== sessionHookTarget && !isIndicatorPageFocused() && options.isPlayingMatch()) {
       wasPlayingWhenUnfocused = true;
       wasInLobbyWhenUnfocused = false;
-      clearIndicatorTimer();
+      clearTimer('indicator');
     }
 
     if (
@@ -325,7 +335,7 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
   function updateGameStartIndicator(): void {
     if (!options.isEnabled()) {
       wasPlayingWhenUnfocused = false;
-      clearWatchTimer();
+      clearTimer('watch');
       clearIndicator();
       return;
     }
@@ -351,8 +361,8 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
       if (consumeSessionEntryGrace()) {
         wasPlayingWhenUnfocused = true;
         wasInLobbyWhenUnfocused = false;
-        clearWatchTimer();
-        clearIndicatorTimer();
+        clearTimer('watch');
+        clearTimer('indicator');
         return;
       }
 
@@ -364,7 +374,7 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
       wasPlayingWhenUnfocused = false;
       wasInLobbyWhenUnfocused = false;
       clearSessionEntryGrace();
-      clearWatchTimer();
+      clearTimer('watch');
       clearIndicator();
       scheduleWatch();
     }
@@ -377,7 +387,7 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
     }
 
     pageFocused = true;
-    clearWatchTimer();
+    clearTimer('watch');
     clearIndicator();
     wasPlayingWhenUnfocused = options.isPlayingMatch();
     wasInLobbyWhenUnfocused = false;
@@ -445,8 +455,8 @@ export function createGameStartIndicatorController(options: GameStartIndicatorOp
     observedSession = null;
     wasSessionActive = false;
     clearSessionEntryGrace();
-    localPlayTransition.clear();
-    clearWatchTimer();
+    clearLocalPlayTransition();
+    clearTimer('watch');
     clearIndicator();
   }
 
