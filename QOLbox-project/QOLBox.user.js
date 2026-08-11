@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QOLBox
 // @namespace    Violentmonkey Scripts
-// @author       gpt-5.4, gpt-5.5, and gpt-5.6-sol
+// @author       AggressiveCombo
 // @version      3.0.0
 // @description  Sharp fullscreen, themes, sound banks, Reserve Spots, lobby tools, readable chat, alerts, mobile Grab, and an improved hitbox.io editor.
 // @license      ISC
