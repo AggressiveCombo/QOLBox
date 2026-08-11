@@ -11357,13 +11357,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       ].join(", ");
       var KEYBOARD_ACTION_ATTRIBUTE = "data-qolbox-keyboard-action";
       var UNAVAILABLE_POINTER_ACTION_SELECTOR = ':disabled, [disabled], [aria-disabled="true"], .disabled, .unlockedClient, .lockedClient, .beenDeleted';
-      function isVisibleElement(element) {
+      function isRenderedElement(element) {
         if (!(element instanceof HTMLElement)) {
           return false;
         }
         const style = window.getComputedStyle(element);
         const rect = element.getBoundingClientRect();
-        return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0;
+        return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+      }
+      function isVisibleElement(element) {
+        return isRenderedElement(element) && Number(window.getComputedStyle(element).opacity || 1) !== 0;
       }
       function getVisibleNativePopup() {
         const popups = Array.from(document.querySelectorAll(NATIVE_POPUP_SELECTOR)).filter(isVisibleElement).filter((popup) => !popup.closest(".qolboxMenuOverlay"));
@@ -11379,10 +11382,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         event.stopPropagation();
         event.stopImmediatePropagation();
       }
-      function findEnabledAction(popup, selectors) {
+      function findEnabledAction(popup, selectors, includeTransparent = false) {
         for (const selector of selectors) {
           const action = popup.querySelector(selector);
-          if (action && isVisibleElement(action) && !isDisabledAction(action)) {
+          const actionable = action && (includeTransparent ? isRenderedElement(action) : isVisibleElement(action));
+          if (actionable && !isDisabledAction(action)) {
             return action;
           }
         }
@@ -11506,29 +11510,17 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         if (opener?.matches(".bigButton.custom")) return ".roomListContainer";
         return "";
       }
-      var navigationDismissEpoch = 0;
-      function settleNavigationDismiss(opener, remainingFrames = 60, focusRestored = false, epoch = ++navigationDismissEpoch) {
-        if (!remainingFrames) return;
-        window.requestAnimationFrame(() => {
-          if (epoch !== navigationDismissEpoch) return;
-          const navigation = document.querySelector(getNavigationSelector(opener));
-          const mainMenuActions = document.querySelector(".mainMenuFancy .rightContainer");
-          let restored = focusRestored;
-          if (navigation && isVisibleElement(navigation) && mainMenuActions?.style.display === "none") {
-            const dismiss = navigation.querySelector(NATIVE_DISMISS_ACTION_SELECTOR);
-            if (dismiss && !isDisabledAction(dismiss)) {
-              dismiss.click();
-              restored = false;
-            }
-          } else if (!restored && mainMenuActions?.style.display !== "none" && opener.isConnected) {
-            opener.focus({ preventScroll: true });
-            restored = true;
-          }
-          settleNavigationDismiss(opener, remainingFrames - 1, restored, epoch);
-        });
+      function finishMainMenuHideTransition() {
+        const mainMenu = document.querySelector(".mainMenuFancy");
+        const actions = mainMenu?.querySelector(".rightContainer");
+        if (!mainMenu || !actions || window.getComputedStyle(mainMenu).display === "none") return;
+        const anime = readObjectProperty(window, "anime");
+        const remove = readObjectProperty(anime, "remove");
+        if (typeof remove === "function") Reflect.apply(remove, anime, [actions]);
+        actions.style.display = "none";
+        actions.style.opacity = "1";
       }
-      function dismissOpenNavigation(returnFocusTo, attempt = 0) {
-        const mainMenuActions = document.querySelector(".mainMenuFancy .rightContainer");
+      function dismissOpenNavigation(returnFocusTo) {
         const editorMenuContainer = getVisibleKeyboardActions("#editorContainer .topMenu .container")[0];
         const editorMenu = editorMenuContainer?.closest(".topLabel");
         if (editorMenu) {
@@ -11544,35 +11536,17 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
           return true;
         }
         const pendingNavigationSelector = getNavigationSelector(returnFocusTo);
-        const pendingNavigation = pendingNavigationSelector ? getVisibleKeyboardActions(pendingNavigationSelector)[0] : null;
-        if (attempt === 0 && returnFocusTo && pendingNavigationSelector) {
-          settleNavigationDismiss(returnFocusTo);
-        }
-        const pendingDismiss = pendingNavigation?.querySelector(NATIVE_DISMISS_ACTION_SELECTOR) ?? null;
-        if (returnFocusTo && pendingDismiss && mainMenuActions instanceof HTMLElement && mainMenuActions.style.display === "none" && !isDisabledAction(pendingDismiss)) {
-          pendingDismiss.click();
-          returnFocusTo?.focus({ preventScroll: true });
-          return true;
-        }
-        const navigation = pendingNavigation ?? getVisibleKeyboardActions(".roomListContainer, .quickMenuContainer").pop();
+        const pendingNavigation = pendingNavigationSelector ? document.querySelector(pendingNavigationSelector) : null;
+        const navigation = pendingNavigation && window.getComputedStyle(pendingNavigation).display !== "none" ? pendingNavigation : getVisibleKeyboardActions(".roomListContainer, .quickMenuContainer").pop();
         const navigationDismiss = navigation?.querySelector(NATIVE_DISMISS_ACTION_SELECTOR);
         if (navigationDismiss && !isDisabledAction(navigationDismiss)) {
+          finishMainMenuHideTransition();
           navigationDismiss.click();
           if (returnFocusTo?.isConnected) returnFocusTo.focus({ preventScroll: true });
           return true;
         }
         const dismissAction = getVisibleKeyboardActions(NATIVE_DISMISS_ACTION_SELECTOR).pop();
-        if (!dismissAction) {
-          if (returnFocusTo?.isConnected && mainMenuActions instanceof HTMLElement && mainMenuActions.style.display === "none" && attempt < 8) {
-            window.requestAnimationFrame(() => dismissOpenNavigation(returnFocusTo, attempt + 1));
-            return true;
-          }
-          return Boolean(pendingNavigation);
-        }
-        if (mainMenuActions instanceof HTMLElement && mainMenuActions.style.display !== "none") {
-          window.requestAnimationFrame(() => dismissOpenNavigation(returnFocusTo, attempt + 1));
-          return true;
-        }
+        if (!dismissAction) return Boolean(pendingNavigation);
         dismissAction.click();
         if (returnFocusTo?.isConnected) returnFocusTo.focus({ preventScroll: true });
         return true;
@@ -11592,7 +11566,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
           ".backButton",
           ".oneButtonWindow .button",
           ".button"
-        ]);
+        ], true);
       }
       function getEnterAction(popup) {
         const activeElement = document.activeElement;
@@ -11662,7 +11636,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
             const activeElement = document.activeElement;
             const navigationWasOpen = getVisibleKeyboardActions(NATIVE_DISMISS_ACTION_SELECTOR).length > 0;
             if (activeElement.matches(".bigButton.qp, .bigButton.custom, .cornerButton .square")) {
-              navigationDismissEpoch += 1;
               lastNavigationOpener = activeElement;
             }
             activateNativeAction(activeElement, isEnterKey(event));
@@ -11731,9 +11704,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
           window.addEventListener("click", (event) => {
             const opener = event.target instanceof Element ? event.target.closest(".bigButton.qp, .bigButton.custom, .cornerButton .square") : null;
             if (opener) {
-              navigationDismissEpoch += 1;
               lastNavigationOpener = opener;
             }
+            if (event.target instanceof Element && event.target.closest(
+              ".quickMenuContainer .returnButton, .roomListContainer .crossButton"
+            )) finishMainMenuHideTransition();
             const vote = event.target instanceof Element ? event.target.closest(MAP_VOTE_ACTION_SELECTOR) : null;
             if (!vote) return;
             event.preventDefault();

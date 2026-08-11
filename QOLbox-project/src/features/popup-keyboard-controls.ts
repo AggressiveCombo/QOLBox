@@ -57,7 +57,7 @@ interface PopupKeyboardControllerOptions {
   decorateActions(root?: ParentNode): void;
 }
 
-function isVisibleElement(element: Element): element is HTMLElement {
+function isRenderedElement(element: Element): element is HTMLElement {
   if (!(element instanceof HTMLElement)) {
     return false;
   }
@@ -67,10 +67,13 @@ function isVisibleElement(element: Element): element is HTMLElement {
   return (
     style.display !== 'none' &&
     style.visibility !== 'hidden' &&
-    Number(style.opacity || 1) !== 0 &&
     rect.width > 0 &&
     rect.height > 0
   );
+}
+
+function isVisibleElement(element: Element): element is HTMLElement {
+  return isRenderedElement(element) && Number(window.getComputedStyle(element).opacity || 1) !== 0;
 }
 
 function getVisibleNativePopup(): HTMLElement | null {
@@ -99,10 +102,15 @@ function blockUnavailablePointerAction(event: Event): void {
   event.stopImmediatePropagation();
 }
 
-function findEnabledAction(popup: HTMLElement, selectors: readonly string[]): HTMLElement | null {
+function findEnabledAction(
+  popup: HTMLElement,
+  selectors: readonly string[],
+  includeTransparent = false,
+): HTMLElement | null {
   for (const selector of selectors) {
     const action = popup.querySelector<HTMLElement>(selector);
-    if (action && isVisibleElement(action) && !isDisabledAction(action)) {
+    const actionable = action && (includeTransparent ? isRenderedElement(action) : isVisibleElement(action));
+    if (actionable && !isDisabledAction(action)) {
       return action;
     }
   }
@@ -273,36 +281,19 @@ function getNavigationSelector(opener: HTMLElement | null): string {
   return '';
 }
 
-let navigationDismissEpoch = 0;
+function finishMainMenuHideTransition(): void {
+  const mainMenu = document.querySelector<HTMLElement>('.mainMenuFancy');
+  const actions = mainMenu?.querySelector<HTMLElement>('.rightContainer');
+  if (!mainMenu || !actions || window.getComputedStyle(mainMenu).display === 'none') return;
 
-function settleNavigationDismiss(
-  opener: HTMLElement,
-  remainingFrames = 60,
-  focusRestored = false,
-  epoch = ++navigationDismissEpoch,
-): void {
-  if (!remainingFrames) return;
-  window.requestAnimationFrame(() => {
-    if (epoch !== navigationDismissEpoch) return;
-    const navigation = document.querySelector<HTMLElement>(getNavigationSelector(opener));
-    const mainMenuActions = document.querySelector<HTMLElement>('.mainMenuFancy .rightContainer');
-    let restored = focusRestored;
-    if (navigation && isVisibleElement(navigation) && mainMenuActions?.style.display === 'none') {
-      const dismiss = navigation.querySelector<HTMLElement>(NATIVE_DISMISS_ACTION_SELECTOR);
-      if (dismiss && !isDisabledAction(dismiss)) {
-        dismiss.click();
-        restored = false;
-      }
-    } else if (!restored && mainMenuActions?.style.display !== 'none' && opener.isConnected) {
-      opener.focus({ preventScroll: true });
-      restored = true;
-    }
-    settleNavigationDismiss(opener, remainingFrames - 1, restored, epoch);
-  });
+  const anime = readObjectProperty(window, 'anime');
+  const remove = readObjectProperty(anime, 'remove');
+  if (typeof remove === 'function') Reflect.apply(remove, anime, [actions]);
+  actions.style.display = 'none';
+  actions.style.opacity = '1';
 }
 
-function dismissOpenNavigation(returnFocusTo: HTMLElement | null, attempt = 0): boolean {
-  const mainMenuActions = document.querySelector('.mainMenuFancy .rightContainer');
+function dismissOpenNavigation(returnFocusTo: HTMLElement | null): boolean {
   const editorMenuContainer = getVisibleKeyboardActions('#editorContainer .topMenu .container')[0];
   const editorMenu = editorMenuContainer?.closest<HTMLElement>('.topLabel');
   if (editorMenu) {
@@ -321,49 +312,21 @@ function dismissOpenNavigation(returnFocusTo: HTMLElement | null, attempt = 0): 
 
   const pendingNavigationSelector = getNavigationSelector(returnFocusTo);
   const pendingNavigation = pendingNavigationSelector
-    ? getVisibleKeyboardActions(pendingNavigationSelector)[0]
+    ? document.querySelector<HTMLElement>(pendingNavigationSelector)
     : null;
-  if (attempt === 0 && returnFocusTo && pendingNavigationSelector) {
-    settleNavigationDismiss(returnFocusTo);
-  }
-  const pendingDismiss = pendingNavigation?.querySelector<HTMLElement>(NATIVE_DISMISS_ACTION_SELECTOR) ?? null;
-  if (
-    returnFocusTo &&
-    pendingDismiss &&
-    mainMenuActions instanceof HTMLElement &&
-    mainMenuActions.style.display === 'none' &&
-    !isDisabledAction(pendingDismiss)
-  ) {
-    pendingDismiss.click();
-    returnFocusTo?.focus({ preventScroll: true });
-    return true;
-  }
-
-  const navigation = pendingNavigation ?? getVisibleKeyboardActions('.roomListContainer, .quickMenuContainer').pop();
+  const navigation = pendingNavigation && window.getComputedStyle(pendingNavigation).display !== 'none'
+    ? pendingNavigation
+    : getVisibleKeyboardActions('.roomListContainer, .quickMenuContainer').pop();
   const navigationDismiss = navigation?.querySelector<HTMLElement>(NATIVE_DISMISS_ACTION_SELECTOR);
   if (navigationDismiss && !isDisabledAction(navigationDismiss)) {
+    finishMainMenuHideTransition();
     navigationDismiss.click();
     if (returnFocusTo?.isConnected) returnFocusTo.focus({ preventScroll: true });
     return true;
   }
 
   const dismissAction = getVisibleKeyboardActions(NATIVE_DISMISS_ACTION_SELECTOR).pop();
-  if (!dismissAction) {
-    if (
-      returnFocusTo?.isConnected &&
-      mainMenuActions instanceof HTMLElement &&
-      mainMenuActions.style.display === 'none' &&
-      attempt < 8
-    ) {
-      window.requestAnimationFrame(() => dismissOpenNavigation(returnFocusTo, attempt + 1));
-      return true;
-    }
-    return Boolean(pendingNavigation);
-  }
-  if (mainMenuActions instanceof HTMLElement && mainMenuActions.style.display !== 'none') {
-    window.requestAnimationFrame(() => dismissOpenNavigation(returnFocusTo, attempt + 1));
-    return true;
-  }
+  if (!dismissAction) return Boolean(pendingNavigation);
   dismissAction.click();
   if (returnFocusTo?.isConnected) returnFocusTo.focus({ preventScroll: true });
   return true;
@@ -386,7 +349,7 @@ function getEscapeAction(popup: HTMLElement): HTMLElement | null {
     '.backButton',
     '.oneButtonWindow .button',
     '.button',
-  ]);
+  ], true);
 }
 
 function getEnterAction(popup: HTMLElement): HTMLElement | null {
@@ -486,7 +449,6 @@ export function createPopupKeyboardController(options: PopupKeyboardControllerOp
       const activeElement = document.activeElement;
       const navigationWasOpen = getVisibleKeyboardActions(NATIVE_DISMISS_ACTION_SELECTOR).length > 0;
       if (activeElement.matches('.bigButton.qp, .bigButton.custom, .cornerButton .square')) {
-        navigationDismissEpoch += 1;
         lastNavigationOpener = activeElement;
       }
       activateNativeAction(activeElement, isEnterKey(event));
@@ -566,9 +528,11 @@ export function createPopupKeyboardController(options: PopupKeyboardControllerOp
         ? event.target.closest<HTMLElement>('.bigButton.qp, .bigButton.custom, .cornerButton .square')
         : null;
       if (opener) {
-        navigationDismissEpoch += 1;
         lastNavigationOpener = opener;
       }
+      if (event.target instanceof Element && event.target.closest(
+        '.quickMenuContainer .returnButton, .roomListContainer .crossButton'
+      )) finishMainMenuHideTransition();
       const vote = event.target instanceof Element
         ? event.target.closest<HTMLElement>(MAP_VOTE_ACTION_SELECTOR)
         : null;
